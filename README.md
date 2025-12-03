@@ -1,53 +1,67 @@
-# SheetPic 📊➡️🖼️
+# SheetPic v5.0 🚀
 
-**The smartest way to batch extract and rename images from Excel.**
+**The Ultimate Batch Image Downloader for E-commerce & Operations.**
+**专为电商运营打造的表格图片批量下载/提取神器。**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Made%20with-Python-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Built%20with-Python%203.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20macOS-lightgrey.svg)]()
 
-## 🧐 Why SheetPic?
+---
 
-If you work in e-commerce, retail, or data management, you've probably faced this nightmare: You have an Excel sheet with hundreds of product photos, and you need to save them all as files named after their Barcodes (SKU).
+## 📖 Introduction (简介)
 
-**Traditional methods fail:**
-* ❌ **Right-click Save:** Impossible for 500+ images.
-* ❌ **VBA Macros:** Often rely on "Screenshots" (`Chart.Export`), resulting in **blurry, low-res images** or white borders.
-* ❌ **Zip Extraction:** Gets you the images, but the filenames are random (`image1.jpg`, `image2.jpg`) and don't match your data.
+**SheetPic** solves the nightmare of downloading thousands of product images from messy distributor spreadsheets. Whether the images are **embedded** in the Excel cells or provided as **URLs**, SheetPic handles them all.
 
-**SheetPic solves this.** It directly reads the Excel file structure to extract the **original, lossless image file** and matches it with your specified column (e.g., Barcode) instantly.
+它解决了电商运营中最头疼的问题：从混乱的供应商表格中提取图片。无论图片是**直接嵌入在单元格里**的，还是**HTTP 链接**，SheetPic 都能智能识别并批量下载。
 
-## ✨ Features
+## ✨ Key Features (核心功能)
 
-* **100% Lossless Quality**: Extracts the exact binary file stored in the Excel sheet.
-* **Smart Renaming**: Automatically names files based on any column you choose (Barcodes, Names, IDs).
-* **Intelligent UI**:
-    * Auto-detects which columns contain images.
-    * Auto-detects header rows to suggest the correct naming column.
-* **Safe & Clean**: Prevents desktop clutter by automatically creating a sub-folder for your images.
-* **No Code Required**: Comes with a user-friendly Graphical Interface (GUI).
+### 🧠 1. Dual-Core Engine (双核引擎)
+* **Universal Parsing**: Uses `Pandas` for robust text/URL reading (supports `.xlsx`, `.xls`, `.csv`, `.html`).
+* **Embedded Extraction**: Uses `OpenPyXL` to extract images pasted directly into cells.
+* **Clipboard Mode**: File corrupted? Just copy the table and click **"Read Clipboard"**.
 
-## 📥 Download & Usage (For Users)
+### ⚡ 2. Smart & HD (智能与高清)
+* **HD Quality**: Automatically strips thumbnail parameters (e.g., `!200x200`, `?width=300`) to ensure you get the **original high-res image**.
+* **Smart Header Seek**: Automatically detects the header row, even if the table starts at row 5.
+* **Multi-Column Merge**: If multiple columns contain images, it prioritizes the column with the most data and auto-renames duplicates (e.g., `SKU-1.jpg`).
 
-1.  Go to the **[Releases](../../releases)** page (Link to your release).
-2.  Download `SheetPic.exe`.
-3.  **Run the app**:
-    * **Step 1**: Select your Excel file (`.xlsx` or `.xlsm`).
-    * **Step 2**: Choose where to save the images (Default is Desktop).
-    * **Step 3**: Confirm the columns (e.g., Image is in Column D, Barcode is in Column E).
-    * **Step 4**: Click **Start Export**.
+### 🛡️ 3. Robustness (鲁棒性设计)
+* **Stop Button**: Gracefully stop the task anytime without crashing.
+* **Transparent Logs**: Clearly distinguishes between `[404 Not Found]`, `[Timeout]`, and `[Empty]` cells.
+* **Smart Resume**: Skips empty rows instantly to save time.
+* **Anti-Blocking**: Uses realistic User-Agent headers to prevent server rejection.
 
-## 💻 Development (For Developers)
+---
 
-If you want to run the source code or build it yourself.
+## 📸 Screenshots (界面预览)
 
-### Prerequisites
-* Python 3.10+
-* Pip
+*(建议在此处上传一张软件运行时的截图)*
 
-### Installation
+> **UI Philosophy**: Compact card-style layout with high-contrast buttons and a vivid green progress bar.
+
+---
+
+## 📥 Installation & Usage (安装与使用)
+
+### For Users (直接使用)
+1.  Go to [Releases](../../releases) and download `SheetPic_v5.exe`.
+2.  Run the app (No installation required).
+3.  **Step 1**: Select your file (Excel/CSV) or Copy data to Clipboard.
+4.  **Step 2**: Choose where to save images.
+5.  **Step 3**: Confirm the columns (Auto-detected).
+6.  Click **Start**.
+
+### For Developers (源码运行)
 
 ```bash
-git clone [https://github.com/yourusername/SheetPic.git](https://github.com/yourusername/SheetPic.git)
+# 1. Clone the repo
+git clone [https://github.com/youngoris/SheetPic.git](https://github.com/youngoris/SheetPic.git)
 cd SheetPic
-pip install -r requirements.txt
+
+# 2. Install dependencies
+pip install pandas openpyxl xlrd lxml requests pillow pyinstaller
+
+# 3. Run
+python sheetpic_v5.py
