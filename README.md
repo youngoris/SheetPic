@@ -37,7 +37,8 @@
 
 ## 📸 Screenshots (界面预览)
 
-*(建议在此处上传一张软件运行时的截图)*
+<img width="499" height="607" alt="image" src="https://github.com/user-attachments/assets/5f64aa56-1e2b-4b26-a95e-d1370af364f6" />
+
 
 > **UI Philosophy**: Compact card-style layout with high-contrast buttons and a vivid green progress bar.
 
