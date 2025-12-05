@@ -18,8 +18,8 @@ import mimetypes
 # ==========================================
 LANG_MAP = {
     'zh': {
-        'title': "SheetPic v5.0 - 智能表格图片批量下载器",
-        'footer_text': "Dev by Andre",
+        'title': "SheetPic - 批量图片下载助手", # 保持标题简洁
+        'footer_text': "SheetPic by Andre",
         'sec_source': "数据来源",
         'sec_settings': "匹配与保存",
         'btn_browse': "📂 选择文件",
@@ -33,10 +33,10 @@ LANG_MAP = {
         'status_idle': "准备就绪",
         'status_run': "进度: {}/{} (成功: {} | 失败: {} | 跳过: {})",
         'status_stop': "正在停止...",
-        'log_ready': "已就绪。404错误和空值将显示详细日志。",
+        'log_ready': "已就绪。已启用全量精准计数。",
         'log_header': "✅ 锁定表头: 第 {} 行",
-        'log_stats': "📊 列分析: 列 {} 含 {} 张图片 (类型: {})",
-        'opt_auto': "★[智能合并]优先下载最多的列|推荐",
+        'log_stats': "📊 列分析: 列 {} 含 {} 条有效数据 (类型: {})",
+        'opt_auto': "★ [智能合并] 优先下载数据最多的列 (推荐)",
         'type_url': "[链接] {} (含 {} 个URL)",
         'type_img': "[图片] {} (含 {} 张嵌入图)",
         'msg_skip': "❌ {}: [空] 未检测到有效图片",
@@ -46,7 +46,7 @@ LANG_MAP = {
         'done_msg': "耗时: {:.1f}s\n成功: {}\n失败: {}\n跳过: {}\n保存至: {}"
     },
     'en': {
-        'title': "SheetPic v5.0 - Smart Batch Downloader",
+        'title': "SheetPic - Batch Image Downloader",
         'footer_text': "SheetPic by Andre",
         'sec_source': "Data Source",
         'sec_settings': "Settings",
@@ -61,9 +61,9 @@ LANG_MAP = {
         'status_idle': "Ready",
         'status_run': "{} / {} (OK: {} Fail: {} Skip: {})",
         'status_stop': "Stopping...",
-        'log_ready': "Ready. Detailed logs enabled for 404/Empty.",
+        'log_ready': "Ready. Precise counting enabled.",
         'log_header': "✅ Header at Row {}",
-        'log_stats': "📊 Col Stats: {} has {} images ({})",
+        'log_stats': "📊 Col Stats: {} has {} valid items ({})",
         'opt_auto': "★ [Auto Merge] Priority by count",
         'type_url': "[Link] {} ({} URLs)",
         'type_img': "[Image] {} ({} Embedded)",
@@ -120,10 +120,13 @@ class SheetPicApp:
         style.configure(".", background=COLORS['card'], foreground=COLORS['text'], font=base_font)
         style.configure("TFrame", background=COLORS['card'])
         style.configure("TEntry", fieldbackground="#F9FAFB", bordercolor=COLORS['border'], padding=5)
+        
         style.configure("TButton", background="#F3F4F6", foreground=COLORS['text'], borderwidth=0, font=base_font)
         style.map("TButton", background=[('active', '#E5E7EB'), ('disabled', COLORS['disabled_bg'])], foreground=[('disabled', COLORS['disabled_fg'])])
+        
         style.configure("Primary.TButton", background=COLORS['primary'], foreground="white", font=("Microsoft YaHei UI", 10, "bold"), borderwidth=0)
         style.map("Primary.TButton", background=[('active', COLORS['primary_hov']), ('disabled', COLORS['disabled_bg'])], foreground=[('disabled', COLORS['disabled_fg'])])
+        
         style.configure("Danger.TButton", background=COLORS['danger'], foreground="white", font=("Microsoft YaHei UI", 10, "bold"), borderwidth=0)
         style.map("Danger.TButton", background=[('disabled', COLORS['disabled_bg'])], foreground=[('disabled', COLORS['disabled_fg'])])
         style.configure("Green.Horizontal.TProgressbar", background=COLORS['success'], troughcolor="#E5E7EB", bordercolor=COLORS['card'], thickness=6)
@@ -142,7 +145,6 @@ class SheetPicApp:
         card2 = tk.Frame(self.root, bg=COLORS['card'], padx=15, pady=15)
         card2.pack(fill='x', padx=15, pady=10)
         tk.Label(card2, text=self.T['sec_settings'], bg=COLORS['card'], fg=COLORS['text_sub'], font=("Arial", 8, "bold")).pack(anchor='w', pady=(0, 5))
-        
         row_dest = tk.Frame(card2, bg=COLORS['card'])
         row_dest.pack(fill='x', pady=(0, 10))
         tk.Label(row_dest, text=self.T['lbl_dest'], bg=COLORS['card'], width=8, anchor='w').pack(side='left')
@@ -283,10 +285,18 @@ class SheetPicApp:
                     embed_counts[c] = embed_counts.get(c, 0) + 1
                 except: pass
 
+        # === 核心修改：全量 URL 计数 ===
         url_counts = {}
         for i, c in enumerate(cols):
-            count = self.df[c].head(100).str.contains("http", case=False).sum()
-            if count > 0: url_counts[i] = count
+            # 1. 快速初筛：先看前50行有没有 http，如果没有就直接跳过（为了性能）
+            sample_has_url = self.df[c].head(50).str.contains("http", case=False).any()
+            
+            if sample_has_url:
+                # 2. 精准计数：如果有希望，则全量扫描该列（Pandas 速度很快，不必担心）
+                # 统计包含 "http" 且不是 NaN/空 的单元格数量
+                real_count = self.df[c].str.contains("http", case=False, na=False).sum()
+                if real_count > 0:
+                    url_counts[i] = real_count
 
         all_img_indices = set(embed_counts.keys()) | set(url_counts.keys())
         for idx in all_img_indices:
@@ -383,7 +393,6 @@ class SheetPicApp:
             for i in range(len(self.df)):
                 if not self.is_running: break
                 
-                # 1. 确定文件名 (Base Name)
                 code = str(self.df.iloc[i, idx_code]).strip()
                 base_name = "".join([c for c in code if c.isalnum() or c in '-_'])
                 if not base_name: base_name = f"Row_{i+1}"
@@ -398,18 +407,19 @@ class SheetPicApp:
                             row_images.append(('embed', img_obj))
                     elif col_info['type'] == 'url':
                         val = str(self.df.iloc[i, c_idx]).strip()
-                        if "http" in val.lower():
-                            if not val.startswith("http"):
-                                import re
-                                m = re.search(r'(https?://[^\s;]+)', val)
-                                if m: val = m.group(1)
-                            val = val.split('?')[0].split('!')[0]
-                            row_images.append(('url', val))
+                        # === 空值/无效值 严格过滤 ===
+                        if not val or val.lower() == 'nan' or "http" not in val.lower():
+                            continue
+                            
+                        if not val.startswith("http"):
+                            import re
+                            m = re.search(r'(https?://[^\s;]+)', val)
+                            if m: val = m.group(1)
+                        val = val.split('?')[0].split('!')[0]
+                        row_images.append(('url', val))
 
-                # 2. 核心逻辑修改：如果没图，记录跳过并打印日志
                 if not row_images:
                     skipped += 1
-                    # 提交一个空消息来触发日志记录
                     self.root.after(0, self.update_progress, i+1+len(tasks), len(self.df), success, fail, skipped, self.T['msg_skip'].format(base_name))
                     continue
 
@@ -435,7 +445,6 @@ class SheetPicApp:
                 is_ok, msg = future.result()
                 if is_ok: success += 1
                 else: fail += 1
-                # 这里为了防止进度条倒退，只更新 success/fail 数据，不增加 current
                 self.root.after(0, self.update_progress, len(self.df), len(self.df), success, fail, skipped, msg)
 
         duration = time.time() - t_start
@@ -447,7 +456,6 @@ class SheetPicApp:
             headers = {'User-Agent': 'Mozilla/5.0'}
             r = requests.get(url, headers=headers, timeout=10, stream=True)
             if not self.is_running: return False, "Stopped"
-            
             if r.status_code == 200:
                 ct = r.headers.get('Content-Type', '').lower()
                 ext = mimetypes.guess_extension(ct)
@@ -467,7 +475,6 @@ class SheetPicApp:
         if not self.is_running: return
         self.progress['value'] = current
         self.lbl_status.config(text=self.T['status_run'].format(current, total, success, fail, skipped))
-        # 允许 Skip 和 Error 日志通过，拦截 OK 和 Process 日志
         if "OK" not in msg and "Process" not in msg:
             self.log(msg)
 
