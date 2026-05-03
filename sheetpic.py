@@ -21,6 +21,7 @@ import webbrowser
 import datetime
 import mimetypes
 import re
+import json
 
 # ==========================================
 # 语言与配置
@@ -28,6 +29,7 @@ import re
 LANG_MAP = {
     'zh': {
         'title': "SheetPic - 图片提取 & 嵌入助手",
+        'menu_lang': "语言",
         'footer_text': "SheetPic by Andre",
         'tab_extract': "提取图片",
         'tab_embed': "嵌入图片",
@@ -74,6 +76,7 @@ LANG_MAP = {
     },
     'en': {
         'title': "SheetPic - Image Extract & Embed Tool",
+        'menu_lang': "Language",
         'footer_text': "SheetPic by Andre",
         'tab_extract': "Extract",
         'tab_embed': "Embed",
@@ -160,8 +163,21 @@ class SheetPicApp:
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".sheetpic_config")
+
     def setup_lang(self):
-        self.lang = 'en'
+        # 1. 读取用户手动设置
+        saved = self._load_config().get('lang')
+        if saved in LANG_MAP:
+            self.lang = saved
+            self.T = LANG_MAP[self.lang]
+            return
+
+        # 2. 自动检测系统语言
+        self.lang = self._detect_system_lang()
+        self.T = LANG_MAP[self.lang]
+
+    def _detect_system_lang(self):
         try:
             if platform.system() == "Darwin":
                 import subprocess
@@ -170,16 +186,55 @@ class SheetPicApp:
                     capture_output=True, text=True, timeout=3
                 )
                 if result.returncode == 0 and 'zh' in result.stdout.lower():
-                    self.lang = 'zh'
+                    return 'zh'
+            elif platform.system() == "Windows":
+                # Windows API: GetUserDefaultUILanguage → LANGID
+                import ctypes
+                lang_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
+                # 0x0804=zh-CN, 0x0404=zh-TW, 0x0C04=zh-HK, 0x1004=zh-SG
+                if lang_id in (0x0804, 0x0404, 0x0C04, 0x1004):
+                    return 'zh'
+                # 也检查 MUI language list
+                buf = ctypes.create_unicode_buffer(256)
+                ctypes.windll.kernel32.GetUserPreferredUILanguages(
+                    0x08, None, buf, ctypes.byref(ctypes.c_uint(256)))
+                if 'zh' in buf.value.lower():
+                    return 'zh'
             else:
                 for var in ('LANG', 'LC_ALL', 'LC_MESSAGES'):
                     val = os.environ.get(var, '')
                     if 'zh' in val.lower():
-                        self.lang = 'zh'
-                        break
+                        return 'zh'
         except:
             pass
-        self.T = LANG_MAP[self.lang]
+        return 'en'
+
+    def _load_config(self):
+        try:
+            with open(self.CONFIG_PATH, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except:
+            return {}
+
+    def _save_config(self, lang):
+        cfg = self._load_config()
+        cfg['lang'] = lang
+        with open(self.CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, ensure_ascii=False)
+
+    def switch_lang(self, lang):
+        if lang == self.lang:
+            return
+        self.lang = lang
+        self.T = LANG_MAP[lang]
+        self._save_config(lang)
+        messagebox.showinfo(
+            self.T['title'],
+            "语言已切换，程序将重启以应用更改。\nLanguage changed, restarting..." if lang == 'zh'
+            else "Language changed. The app will restart to apply.\n语言已切换，程序将重启。"
+        )
+        self.root.destroy()
+        os.execl(sys.executable, sys.executable, *sys.argv)
 
     def setup_style(self):
         style = ttk.Style()
@@ -216,6 +271,14 @@ class SheetPicApp:
                    foreground=[("selected", "#1F2937"), ("!selected", "#888888")])
 
     def setup_ui(self):
+        # === 菜单栏 ===
+        menubar = tk.Menu(self.root)
+        lang_menu = tk.Menu(menubar, tearoff=0)
+        lang_menu.add_command(label="中文", command=lambda: self.switch_lang('zh'))
+        lang_menu.add_command(label="English", command=lambda: self.switch_lang('en'))
+        menubar.add_cascade(label=self.T['menu_lang'], menu=lang_menu)
+        self.root.config(menu=menubar)
+
         # === card1: 数据来源 (共享) ===
         card1 = tk.Frame(self.root, bg=COLORS['card'], padx=15, pady=15)
         card1.pack(fill='x', padx=15, pady=(20, 5))

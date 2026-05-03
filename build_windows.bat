@@ -45,7 +45,7 @@ echo ========================================
 set ICON_ARG=
 if exist %ICON% set ICON_ARG=--icon=%ICON%
 
-python -m PyInstaller --windowed --onedir --noconfirm --clean --name=%APP_NAME% %ICON_ARG% %MAIN_SCRIPT%
+python -m PyInstaller --windowed --onefile --noconfirm --clean --name=%APP_NAME% %ICON_ARG% %MAIN_SCRIPT%
 
 if errorlevel 1 (
     echo.
@@ -59,15 +59,12 @@ echo ========================================
 echo 打包完成
 echo ========================================
 
-if exist dist\%APP_NAME%\%APP_NAME%.exe (
-    echo   输出: dist\%APP_NAME%\ (%ARCH%)
+if exist dist\%APP_NAME%.exe (
+    echo   输出: dist\%APP_NAME%.exe
+    echo   架构: %ARCH%
     echo   签名: 无（SmartScreen 会弹警告，点仍要运行即可）
-    echo.
-    echo 正在压缩 ZIP...
-    powershell -Command "Compress-Archive -Path 'dist\%APP_NAME%\*' -DestinationPath 'dist\%APP_NAME%-Windows-%ARCH%.zip' -Force"
-    echo   ZIP: dist\%APP_NAME%-Windows-%ARCH%.zip
 ) else (
-    echo   ERROR: 未找到 dist\%APP_NAME%\%APP_NAME%.exe
+    echo   ERROR: 未找到 dist\%APP_NAME%.exe
     exit /b 1
 )
 
