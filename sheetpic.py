@@ -159,9 +159,9 @@ class SheetPicApp:
         self.root.title(f"{self.T['title']}  v{APP_VERSION}")
         self.root.configure(bg=COLORS['bg'])
         if platform.system() == "Darwin":
-            self.root.geometry("520x700")
+            self.root.geometry("520x750")
         else:
-            self.root.geometry("500x680")
+            self.root.geometry("500x730")
 
         self.default_dir = os.path.join(os.path.expanduser("~"), "Desktop")
         self.file_path = None
@@ -369,7 +369,7 @@ class SheetPicApp:
         # === 日志区 ===
         log_frame = tk.Frame(self.root, bg=COLORS['card'], bd=1, relief="flat")
         log_frame.pack(fill='both', expand=True, padx=15, pady=(5, 5))
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, font=("Consolas", 8),
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, font=("Consolas", 8),
                                                    bd=0, highlightthickness=0)
         self.log_text.pack(fill='both', expand=True)
         self.log_text.configure(bg="#F5F5F5", fg="#444", padx=10, pady=10, state='normal')
