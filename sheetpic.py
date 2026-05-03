@@ -71,7 +71,6 @@ LANG_MAP = {
         'log_embed_save': "正在保存Excel文件...",
         'embed_status_run': "嵌入: {}/{} (成功: {} | 失败: {})",
         # Shared
-        'btn_copy_log': "复制",
         'btn_start': "开始处理",
         'btn_stop': "停止",
         'status_idle': "准备就绪",
@@ -120,7 +119,6 @@ LANG_MAP = {
         'log_embed_save': "Saving Excel file...",
         'embed_status_run': "Embed: {} / {} (OK: {} | Fail: {})",
         # Shared
-        'btn_copy_log': "Copy",
         'btn_start': "Start",
         'btn_stop': "Stop",
         'status_idle': "Ready",
@@ -361,11 +359,6 @@ class SheetPicApp:
         # === 日志区 ===
         log_frame = tk.Frame(self.root, bg=COLORS['card'], bd=1, relief="flat")
         log_frame.pack(fill='both', expand=True, padx=15, pady=(5, 5))
-        log_header = tk.Frame(log_frame, bg=COLORS['card'])
-        log_header.pack(fill='x')
-        btn_copy = ttk.Button(log_header, text=self.T['btn_copy_log'], width=6,
-                              command=self.copy_log)
-        btn_copy.pack(side='right', padx=5, pady=2)
         self.log_text = scrolledtext.ScrolledText(log_frame, height=5, font=("Consolas", 8),
                                                    bd=0, highlightthickness=0)
         self.log_text.pack(fill='both', expand=True)
@@ -492,12 +485,6 @@ class SheetPicApp:
         now = datetime.datetime.now().strftime("[%H:%M:%S]")
         self.log_text.insert(tk.END, f"{now} {msg}\n")
         self.log_text.see(tk.END)
-
-    def copy_log(self):
-        content = self.log_text.get("1.0", tk.END).strip()
-        if content:
-            self.root.clipboard_clear()
-            self.root.clipboard_append(content)
 
     def select_file(self):
         p = filedialog.askopenfilename(filetypes=[("Data", "*.xlsx;*.xls;*.csv;*.html"), ("All", "*.*")])
