@@ -104,11 +104,32 @@ jobs:
 
   release:
     needs: [build-macos, build-windows]
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version from source
+        id: version
+        run: |
+          VERSION=$(sed -n 's/.*APP_VERSION *= *"\([^"]*\)".*/\1/p' sheetpic.py)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag if not exists
+        run: |
+          TAG=${{ steps.version.outputs.tag }}
+          if ! git rev-parse "$TAG" >/dev/null 2>&1; then
+            git config user.name "github-actions"
+            git config user.email "github-actions@github.com"
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "Created tag $TAG"
+          else
+            echo "Tag $TAG already exists"
+          fi
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
@@ -117,6 +138,8 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "SheetPic ${{ steps.version.outputs.tag }}"
           generate_release_notes: true
           files: |
             artifacts/macOS-ARM64/SheetPic-macOS-ARM64.dmg
