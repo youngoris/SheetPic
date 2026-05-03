@@ -29,7 +29,7 @@ import subprocess
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.6"
+APP_VERSION = "1.0.7"
 
 # ==========================================
 # 语言与配置
@@ -62,6 +62,7 @@ LANG_MAP = {
         'lbl_img_size': "最大边长 (px)",
         'chk_original': "插入原图 (不缩放)",
         'chk_del_url': "嵌入后删除原URL列",
+        'chk_write_original': "写入原文件 (保留格式)",
         'msg_no_url': "❌ 未检测到包含URL的列",
         'msg_embed_done': "耗时: {:.1f}s\n嵌入成功: {}\n下载失败: {}\n输出文件: {}",
         'msg_dl_fail': "[下载失败]",
@@ -109,6 +110,7 @@ LANG_MAP = {
         'lbl_img_size': "Max Dimension (px)",
         'chk_original': "Original Size (no resize)",
         'chk_del_url': "Delete URL column after embedding",
+        'chk_write_original': "Write to original file (preserve format)",
         'msg_no_url': "❌ No URL column detected",
         'msg_embed_done': "Time: {:.1f}s\nEmbedded: {}\nFailed: {}\nOutput: {}",
         'msg_dl_fail': "[Download Failed]",
@@ -432,6 +434,14 @@ class SheetPicApp:
                                   fg=COLORS['text_sub'], font=("Arial", 8),
                                   activebackground=COLORS['card'])
         chk_del.pack(anchor='w', pady=(8, 0))
+
+        # 写入原文件
+        self.var_write_original = tk.BooleanVar(value=False)
+        chk_wo = tk.Checkbutton(parent, text=self.T['chk_write_original'],
+                                 variable=self.var_write_original, bg=COLORS['card'],
+                                 fg=COLORS['text_sub'], font=("Arial", 8),
+                                 activebackground=COLORS['card'])
+        chk_wo.pack(anchor='w', pady=(8, 0))
 
     # ==========================================
     # 通用方法
@@ -928,7 +938,6 @@ class SheetPicApp:
         self._process_start_time = t_start
         dest = self.entry_dest.get()
         fname = "Clipboard" if self.file_path == "Clipboard" else os.path.splitext(os.path.basename(self.file_path))[0]
-        out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
 
         self.root.after(0, lambda: self.log(self.T['log_embed_start']))
 
@@ -942,36 +951,22 @@ class SheetPicApp:
 
         url_col_idx = self.embed_url_col_idx
         sku_col_idx = self.embed_sku_col_idx
+        write_original = self.var_write_original.get()
 
-        wb_out = openpyxl.Workbook()
-        ws = wb_out.active
+        if write_original:
+            out_file, ws, wb_out, img_header_col, header_row_excel = \
+                self._embed_setup_original(fname, url_col_idx)
+        else:
+            out_file, ws, wb_out, img_header_col = \
+                self._embed_setup_new(fname, url_col_idx)
 
         orig_cols = list(self.df.columns)
-        del_url = self.var_del_url.get()
-
-        out_col = 1
-        img_header_col = 1
-        for i, col_name in enumerate(orig_cols):
-            if del_url and i == url_col_idx:
-                ws.cell(row=1, column=out_col, value="图片")
-                img_header_col = out_col
-                out_col += 1
-            else:
-                ws.cell(row=1, column=out_col, value=col_name)
-                out_col += 1
-                if not del_url and i == url_col_idx:
-                    ws.cell(row=1, column=out_col, value="图片")
-                    img_header_col = out_col
-                    out_col += 1
-
         total = len(self.df)
         self.progress['maximum'] = total
 
+        # Collect URLs
         rows_data = []
         for i in range(total):
-            code = str(self.df.iloc[i, sku_col_idx]).strip()
-            if not code or code.lower() == 'nan':
-                code = f"Row_{i+1}"
             url_raw = str(self.df.iloc[i, url_col_idx]).strip()
             url = url_raw
             if url and url.lower() != 'nan' and 'http' in url.lower():
@@ -982,15 +977,16 @@ class SheetPicApp:
                 url = self.clean_url(url)
             else:
                 url = None
-            rows_data.append((code, url))
+            rows_data.append(url)
 
         success = 0
         fail = 0
         row_results = [None] * total
 
+        # Download concurrently
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = {}
-            for i, (code, url) in enumerate(rows_data):
+            for i, url in enumerate(rows_data):
                 if not self.is_running:
                     break
                 if url:
@@ -1011,6 +1007,7 @@ class SheetPicApp:
                 completed += 1
                 self.root.after(0, self.update_progress_emb, completed, total, success, fail)
 
+        # Embed images into sheet
         for i, result in enumerate(row_results):
             if not self.is_running:
                 break
@@ -1018,19 +1015,21 @@ class SheetPicApp:
                 result = (False, "Stopped")
 
             is_ok, data = result
-            excel_row = i + 2
 
-            out_col = 1
-            for j in range(len(orig_cols)):
-                if del_url and j == url_col_idx:
-                    out_col += 1
-                else:
-                    cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
-                    if cell_val.lower() == 'nan':
-                        cell_val = ""
-                    ws.cell(row=excel_row, column=out_col, value=cell_val)
-                    out_col += 1
-                    if not del_url and j == url_col_idx:
+            if write_original:
+                excel_row = header_row_excel + 1 + i
+            else:
+                excel_row = i + 2
+                # Write cell values for new-workbook mode
+                out_col = 1
+                for j in range(len(orig_cols)):
+                    if j == url_col_idx:
+                        out_col += 1
+                    else:
+                        cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
+                        if cell_val.lower() == 'nan':
+                            cell_val = ""
+                        ws.cell(row=excel_row, column=out_col, value=cell_val)
                         out_col += 1
 
             img_col_letter = get_column_letter(img_header_col)
@@ -1048,36 +1047,105 @@ class SheetPicApp:
                     xl_img.height = scaled_h
                     ws.add_image(xl_img, f"{img_col_letter}{excel_row}")
                     success += 1
-                except Exception as e:
+                except Exception:
                     ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_fail'])
                     fail += 1
             else:
                 ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_fail'])
                 fail += 1
 
+        # Handle stopped rows
         if not self.is_running:
             for i in range(total):
                 if row_results[i] is None:
-                    excel_row = i + 2
-                    out_col = 1
-                    for j in range(len(orig_cols)):
-                        if del_url and j == url_col_idx:
-                            out_col += 1
-                        else:
-                            cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
-                            if cell_val.lower() == 'nan':
-                                cell_val = ""
-                            ws.cell(row=excel_row, column=out_col, value=cell_val)
-                            out_col += 1
-                            if not del_url and j == url_col_idx:
+                    if write_original:
+                        excel_row = header_row_excel + 1 + i
+                    else:
+                        excel_row = i + 2
+                        out_col = 1
+                        for j in range(len(orig_cols)):
+                            if j == url_col_idx:
+                                out_col += 1
+                            else:
+                                cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
+                                if cell_val.lower() == 'nan':
+                                    cell_val = ""
+                                ws.cell(row=excel_row, column=out_col, value=cell_val)
                                 out_col += 1
                     ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_skip'])
 
         self.root.after(0, lambda: self.log(self.T['log_embed_save']))
         wb_out.save(out_file)
+        wb_out.close()
 
         duration = time.time() - t_start
         self.root.after(0, lambda: self.embed_finish(success, fail, out_file, duration))
+
+    def _embed_setup_new(self, fname, url_col_idx):
+        """Create a new workbook for embedding. Returns (out_file, ws, wb, img_header_col)."""
+        dest = self.entry_dest.get()
+        out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
+        wb_out = openpyxl.Workbook()
+        ws = wb_out.active
+
+        orig_cols = list(self.df.columns)
+        out_col = 1
+        img_header_col = 1
+        for i, col_name in enumerate(orig_cols):
+            ws.cell(row=1, column=out_col, value=col_name)
+            out_col += 1
+            if i == url_col_idx:
+                ws.cell(row=1, column=out_col, value="图片")
+                img_header_col = out_col
+                out_col += 1
+
+        return out_file, ws, wb_out, img_header_col
+
+    def _embed_setup_original(self, fname, url_col_idx):
+        """Load original workbook, insert image column. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
+        dest = self.entry_dest.get()
+        out_file = os.path.join(dest, f"{fname}_WithImages.xlsx")
+
+        if self.file_path == "Clipboard" or not os.path.exists(self.file_path):
+            # Clipboard mode: fallback to new workbook
+            return self._embed_setup_new(fname, url_col_idx) + (2,)
+
+        wb_out = openpyxl.load_workbook(self.file_path)
+        ws = wb_out.active
+
+        # Find header row and URL column in the Excel sheet
+        url_col_name = str(self.df.columns[url_col_idx])
+        header_row_excel = self.header_row + 1  # 0-based DataFrame → 1-based Excel
+
+        url_excel_col = None
+        for col_idx in range(1, ws.max_column + 1):
+            cell_val = ws.cell(row=header_row_excel, column=col_idx).value
+            if cell_val is not None and str(cell_val).strip() == url_col_name:
+                url_excel_col = col_idx
+                break
+
+        if url_excel_col is None:
+            # Fallback: search all rows for the header
+            for r in range(1, min(ws.max_row + 1, 20)):
+                for c in range(1, ws.max_column + 1):
+                    cell_val = ws.cell(row=r, column=c).value
+                    if cell_val is not None and str(cell_val).strip() == url_col_name:
+                        url_excel_col = c
+                        header_row_excel = r
+                        break
+                if url_excel_col:
+                    break
+
+        if url_excel_col is None:
+            # Last resort: use column index directly
+            url_excel_col = url_col_idx + 1
+
+        # Insert a new column after the URL column for images
+        img_header_col = url_excel_col + 1
+        ws.insert_cols(img_header_col)
+        ws.cell(row=header_row_excel, column=img_header_col, value="图片")
+
+        return out_file, ws, wb_out, img_header_col, header_row_excel
 
     def update_progress_emb(self, current, total, success, fail):
         if not self.is_running:
