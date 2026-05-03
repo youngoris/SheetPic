@@ -996,12 +996,14 @@ class SheetPicApp:
         sku_col_idx = self.embed_sku_col_idx
         write_original = self.var_write_original.get()
 
+        del_url = self.var_del_url.get()
+
         if write_original:
             out_file, ws, wb_out, img_header_col, header_row_excel = \
-                self._embed_setup_original(fname, url_col_idx)
+                self._embed_setup_original(fname, url_col_idx, del_url)
         else:
             out_file, ws, wb_out, img_header_col = \
-                self._embed_setup_new(fname, url_col_idx)
+                self._embed_setup_new(fname, url_col_idx, del_url)
 
         orig_cols = list(self.df.columns)
         total = len(self.df)
@@ -1066,7 +1068,7 @@ class SheetPicApp:
                 # Write cell values for new-workbook mode
                 out_col = 1
                 for j in range(len(orig_cols)):
-                    if j == url_col_idx:
+                    if del_url and j == url_col_idx:
                         out_col += 1
                     else:
                         cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
@@ -1074,6 +1076,8 @@ class SheetPicApp:
                             cell_val = ""
                         ws.cell(row=excel_row, column=out_col, value=cell_val)
                         out_col += 1
+                        if not del_url and j == url_col_idx:
+                            out_col += 1
 
             img_col_letter = get_column_letter(img_header_col)
             if is_ok:
@@ -1107,7 +1111,7 @@ class SheetPicApp:
                         excel_row = i + 2
                         out_col = 1
                         for j in range(len(orig_cols)):
-                            if j == url_col_idx:
+                            if del_url and j == url_col_idx:
                                 out_col += 1
                             else:
                                 cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
@@ -1115,6 +1119,8 @@ class SheetPicApp:
                                     cell_val = ""
                                 ws.cell(row=excel_row, column=out_col, value=cell_val)
                                 out_col += 1
+                                if not del_url and j == url_col_idx:
+                                    out_col += 1
                     ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_skip'])
 
         self.root.after(0, lambda: self.log(self.T['log_embed_save']))
@@ -1124,7 +1130,7 @@ class SheetPicApp:
         duration = time.time() - t_start
         self.root.after(0, lambda: self.embed_finish(success, fail, out_file, duration))
 
-    def _embed_setup_new(self, fname, url_col_idx):
+    def _embed_setup_new(self, fname, url_col_idx, del_url=False):
         """Create a new workbook for embedding. Returns (out_file, ws, wb, img_header_col)."""
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
@@ -1135,23 +1141,28 @@ class SheetPicApp:
         out_col = 1
         img_header_col = 1
         for i, col_name in enumerate(orig_cols):
-            ws.cell(row=1, column=out_col, value=col_name)
-            out_col += 1
-            if i == url_col_idx:
+            if del_url and i == url_col_idx:
                 ws.cell(row=1, column=out_col, value="图片")
                 img_header_col = out_col
                 out_col += 1
+            else:
+                ws.cell(row=1, column=out_col, value=col_name)
+                out_col += 1
+                if not del_url and i == url_col_idx:
+                    ws.cell(row=1, column=out_col, value="图片")
+                    img_header_col = out_col
+                    out_col += 1
 
         return out_file, ws, wb_out, img_header_col
 
-    def _embed_setup_original(self, fname, url_col_idx):
+    def _embed_setup_original(self, fname, url_col_idx, del_url=False):
         """Load original workbook, insert image column. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_WithImages.xlsx")
 
         if self.file_path == "Clipboard" or not os.path.exists(self.file_path):
             # Clipboard mode: fallback to new workbook
-            return self._embed_setup_new(fname, url_col_idx) + (2,)
+            return self._embed_setup_new(fname, url_col_idx, del_url) + (2,)
 
         wb_out = openpyxl.load_workbook(self.file_path)
         ws = wb_out.active
@@ -1183,10 +1194,15 @@ class SheetPicApp:
             # Last resort: use column index directly
             url_excel_col = url_col_idx + 1
 
-        # Insert a new column after the URL column for images
-        img_header_col = url_excel_col + 1
-        ws.insert_cols(img_header_col)
-        ws.cell(row=header_row_excel, column=img_header_col, value="图片")
+        if del_url:
+            # Replace URL column with image column
+            img_header_col = url_excel_col
+            ws.cell(row=header_row_excel, column=img_header_col, value="图片")
+        else:
+            # Insert a new column after the URL column for images
+            img_header_col = url_excel_col + 1
+            ws.insert_cols(img_header_col)
+            ws.cell(row=header_row_excel, column=img_header_col, value="图片")
 
         return out_file, ws, wb_out, img_header_col, header_row_excel
 
