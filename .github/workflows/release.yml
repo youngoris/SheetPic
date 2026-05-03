@@ -137,12 +137,17 @@ jobs:
         with:
           path: artifacts
 
+      - name: Flatten artifacts (unzip DMG/EXE from artifact ZIPs)
+        run: |
+          mkdir -p release_files
+          find artifacts -name '*.dmg' -exec cp {} release_files/ \;
+          find artifacts -name '*.exe' -exec cp {} release_files/ \;
+          ls -lh release_files/
+
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "SheetPic ${{ steps.version.outputs.tag }}"
           generate_release_notes: true
-          files: |
-            artifacts/macOS-ARM64/SheetPic-macOS-ARM64.dmg
-            artifacts/Windows-x64/SheetPic-Windows-x64.exe
+          files: release_files/*
