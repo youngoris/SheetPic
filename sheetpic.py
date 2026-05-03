@@ -144,9 +144,9 @@ class SheetPicApp:
         self.root.title(f"{self.T['title']}  v{APP_VERSION}")
         self.root.configure(bg=COLORS['bg'])
         if platform.system() == "Darwin":
-            self.root.geometry("520x650")
+            self.root.geometry("520x700")
         else:
-            self.root.geometry("500x630")
+            self.root.geometry("500x680")
 
         self.default_dir = os.path.join(os.path.expanduser("~"), "Desktop")
         self.file_path = None
@@ -340,15 +340,7 @@ class SheetPicApp:
                                     command=self.stop_thread, state='disabled')
         self.btn_stop.pack(side='right', fill='x', expand=True, padx=(5, 0), ipady=5)
 
-        # === 日志区 ===
-        log_frame = tk.Frame(self.root, bg=COLORS['card'], bd=1, relief="flat")
-        log_frame.pack(fill='both', expand=True, padx=15, pady=(5, 5))
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, font=("Consolas", 8),
-                                                   bd=0, highlightthickness=0)
-        self.log_text.pack(fill='both', expand=True)
-        self.log_text.configure(bg="#F5F5F5", fg="#444", padx=10, pady=10, state='normal')
-
-        # === 页脚 ===
+        # === 页脚 (先打包，确保不被日志区挤掉) ===
         footer = tk.Frame(self.root, bg=COLORS['bg'])
         footer.pack(side='bottom', fill='x', padx=15, pady=8)
         tk.Label(footer, text=self.T['footer_text'].format(APP_VERSION),
@@ -357,6 +349,14 @@ class SheetPicApp:
                              bg=COLORS['bg'], fg=COLORS['primary'], cursor="hand2")
         lbl_link.pack(side='right')
         lbl_link.bind("<Button-1>", lambda e: webbrowser.open(GITHUB_URL))
+
+        # === 日志区 ===
+        log_frame = tk.Frame(self.root, bg=COLORS['card'], bd=1, relief="flat")
+        log_frame.pack(fill='both', expand=True, padx=15, pady=(5, 5))
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=5, font=("Consolas", 8),
+                                                   bd=0, highlightthickness=0)
+        self.log_text.pack(fill='both', expand=True)
+        self.log_text.configure(bg="#F5F5F5", fg="#444", padx=10, pady=10, state='normal')
 
         self.mode = 'extract'
         self.log(self.T['log_ready'])
