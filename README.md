@@ -56,6 +56,7 @@ Go to [Releases](../../releases) and download:
 | Platform | File | Notes |
 |---|---|---|
 | macOS (Apple Silicon) | `SheetPic-macOS-ARM64.dmg` | Open DMG, drag SheetPic to Applications |
+| macOS (Intel) | `SheetPic-macOS-Intel.dmg` | Open DMG, drag SheetPic to Applications |
 | Windows x64 | `SheetPic-Windows-x64.exe` | Double-click to run |
 
 ---
