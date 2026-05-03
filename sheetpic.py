@@ -29,7 +29,7 @@ import subprocess
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.7"
+APP_VERSION = "1.0.8"
 
 # ==========================================
 # 语言与配置
@@ -298,6 +298,7 @@ class SheetPicApp:
         row1.pack(fill='x')
         self.entry_path = ttk.Entry(row1)
         self.entry_path.pack(side='left', fill='x', expand=True, padx=(0, 5), ipady=3)
+        self._setup_dnd(self.entry_path)
         ttk.Button(row1, text=self.T['btn_browse'], width=10, command=self.select_file).pack(side='left', padx=2)
         ttk.Button(row1, text=self.T['btn_clip'], width=8, command=self.load_clipboard).pack(side='left')
 
@@ -446,6 +447,35 @@ class SheetPicApp:
     # ==========================================
     # 通用方法
     # ==========================================
+
+    def _setup_dnd(self, widget):
+        """Enable drag-and-drop on a widget if tkdnd is available."""
+        try:
+            widget.drop_target_register('DND_Files')
+            widget.dnd_bind('<<Drop>>', self._on_drop)
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _on_drop(self, event):
+        """Handle dropped files."""
+        path = event.data.strip()
+        # tkdnd may wrap paths in braces or quote them
+        if path.startswith('{') and path.endswith('}'):
+            path = path[1:-1]
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+        # Handle multiple files: take the first one
+        if ' ' in path and not os.path.exists(path):
+            # Try splitting by spaces, find first existing file
+            for part in path.split():
+                if os.path.exists(part):
+                    path = part
+                    break
+        if os.path.exists(path):
+            self.entry_path.delete(0, tk.END)
+            self.entry_path.insert(0, path)
+            self.file_path = path
+            self.analyze_data()
 
     def on_tab_changed(self, event):
         tab = self.notebook.index(self.notebook.select())
@@ -1196,5 +1226,10 @@ class SheetPicApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
+    # Try loading tkdnd for drag-and-drop support
+    try:
+        root.tk.call('package', 'require', 'tkdnd')
+    except tk.TclError:
+        pass
     app = SheetPicApp(root)
     root.mainloop()

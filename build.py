@@ -48,7 +48,7 @@ def build_macos():
         "lib2to3", "pydoc", "tkinter.test", "numpy.testing",
     ])
     hidden = " ".join(f"--hidden-import {m}" for m in [
-        "xlrd", "lxml", "lxml.etree", "lxml.html",
+        "xlrd", "lxml", "lxml.etree", "lxml.html", "tkinterdnd2",
     ])
     run(f'{sys.executable} -m PyInstaller --windowed --onedir --noconfirm --clean '
         f'--name={APP_NAME} {icon_args} {excludes} {hidden} {MAIN_SCRIPT}')
