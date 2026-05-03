@@ -36,7 +36,7 @@ APP_VERSION = "1.0.8"
 # ==========================================
 LANG_MAP = {
     'zh': {
-        'title': "SheetPic - 图片提取 & 嵌入助手",
+        'title': "表图 - 表格图片提取 & 嵌入工具",
         'menu_lang': "语言",
         'footer_text': "Build by Andre  |  v{}",
         'tab_extract': "提取图片",
@@ -89,7 +89,7 @@ LANG_MAP = {
         'msg_err': "❌ {}: [错误] {}",
     },
     'en': {
-        'title': "SheetPic - Image Extract & Embed Tool",
+        'title': "SheetPic - Spreadsheet Image Extract & Embed",
         'menu_lang': "Language",
         'footer_text': "Build by Andre  |  v{}",
         'tab_extract': "Extract",
