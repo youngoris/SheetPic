@@ -47,8 +47,11 @@ def build_macos():
         "tqdm", "setuptools", "unittest", "test", "distutils",
         "lib2to3", "pydoc", "tkinter.test", "numpy.testing",
     ])
+    hidden = " ".join(f"--hidden-import {m}" for m in [
+        "xlrd", "lxml", "lxml.etree", "lxml.html",
+    ])
     run(f'{sys.executable} -m PyInstaller --windowed --onedir --noconfirm --clean '
-        f'--name={APP_NAME} {icon_args} {excludes} {MAIN_SCRIPT}')
+        f'--name={APP_NAME} {icon_args} {excludes} {hidden} {MAIN_SCRIPT}')
 
     # 写入版本号到 Info.plist
     import re as _re
