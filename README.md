@@ -54,7 +54,7 @@ Go to [Releases](../../releases) and download:
 | Platform | File | Notes |
 |---|---|---|
 | macOS (Apple Silicon) | `SheetPic-macOS-ARM64.dmg` | Open DMG, drag SheetPic to Applications |
-| Windows x64 | `SheetPic.exe` | Double-click to run (SmartScreen warning is normal) |
+| Windows x64 | `SheetPic-Windows-x64.zip` | Unzip, run `SheetPic.exe` inside |
 
 ---
 
