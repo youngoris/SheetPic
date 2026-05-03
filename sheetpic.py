@@ -22,11 +22,14 @@ import datetime
 import mimetypes
 import re
 import json
+import sys
+import time
+import subprocess
 
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.4"
+APP_VERSION = "1.0.5"
 
 # ==========================================
 # 语言与配置
@@ -489,9 +492,14 @@ class SheetPicApp:
             return 0
 
     def analyze_data(self):
-        self.progress.config(mode='indeterminate')
-        self.progress.start(15)
+        self.root.after(0, lambda: self.progress.config(mode='indeterminate'))
+        self.root.after(0, lambda: self.progress.start(15))
         self.df = None
+        if self.wb:
+            try:
+                self.wb.close()
+            except Exception:
+                pass
         self.wb = None
         self.ws = None
         self.header_row = 0
@@ -524,9 +532,9 @@ class SheetPicApp:
         except Exception as e:
             self.log(f"❌ Error: {e}")
 
-        self.progress.stop()
-        self.progress.config(mode='determinate')
-        self.progress['value'] = 0
+        self.root.after(0, lambda: self.progress.stop())
+        self.root.after(0, lambda: self.progress.config(mode='determinate'))
+        self.root.after(0, lambda: self.progress.__setitem__('value', 0))
         if self.df is not None and not self.df.empty:
             self.process_df()
 
@@ -1062,14 +1070,19 @@ class SheetPicApp:
     def _open_folder(self, path):
         try:
             if platform.system() == "Darwin":
-                os.system(f'open "{path}"')
+                subprocess.run(["open", path], check=False)
             else:
                 os.startfile(path)
-        except:
+        except Exception:
             pass
 
     def on_closing(self):
         self.is_running = False
+        if self.wb:
+            try:
+                self.wb.close()
+            except Exception:
+                pass
         self.root.destroy()
         os._exit(0)
 
