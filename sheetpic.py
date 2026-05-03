@@ -24,13 +24,18 @@ import re
 import json
 
 # ==========================================
+# 版本号
+# ==========================================
+APP_VERSION = "1.0.1"
+
+# ==========================================
 # 语言与配置
 # ==========================================
 LANG_MAP = {
     'zh': {
         'title': "SheetPic - 图片提取 & 嵌入助手",
         'menu_lang': "语言",
-        'footer_text': "SheetPic by Andre",
+        'footer_text': "Build by Andre  |  v{}",
         'tab_extract': "提取图片",
         'tab_embed': "嵌入图片",
         'sec_source': "数据来源",
@@ -77,7 +82,7 @@ LANG_MAP = {
     'en': {
         'title': "SheetPic - Image Extract & Embed Tool",
         'menu_lang': "Language",
-        'footer_text': "SheetPic by Andre",
+        'footer_text': "Build by Andre  |  v{}",
         'tab_extract': "Extract",
         'tab_embed': "Embed",
         'sec_source': "Data Source",
@@ -136,7 +141,7 @@ class SheetPicApp:
     def __init__(self, root):
         self.root = root
         self.setup_lang()
-        self.root.title(self.T['title'])
+        self.root.title(f"{self.T['title']}  v{APP_VERSION}")
         self.root.configure(bg=COLORS['bg'])
         if platform.system() == "Darwin":
             self.root.geometry("520x650")
@@ -346,8 +351,8 @@ class SheetPicApp:
         # === 页脚 ===
         footer = tk.Frame(self.root, bg=COLORS['bg'])
         footer.pack(side='bottom', fill='x', padx=15, pady=8)
-        tk.Label(footer, text=self.T['footer_text'], font=("Arial", 8),
-                 bg=COLORS['bg'], fg=COLORS['text_sub']).pack(side='left')
+        tk.Label(footer, text=self.T['footer_text'].format(APP_VERSION),
+                 font=("Arial", 8), bg=COLORS['bg'], fg=COLORS['text_sub']).pack(side='left')
         lbl_link = tk.Label(footer, text="GitHub", font=("Arial", 8),
                              bg=COLORS['bg'], fg=COLORS['primary'], cursor="hand2")
         lbl_link.pack(side='right')

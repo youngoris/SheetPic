@@ -32,6 +32,15 @@ jobs:
             --exclude-module numpy.testing \
             sheetpic.py
 
+      - name: Set version in Info.plist
+        run: |
+          VERSION=$(grep -oP 'APP_VERSION\s*=\s*"\K[^"]+' sheetpic.py)
+          PLIST="dist/SheetPic.app/Contents/Info.plist"
+          sed -i '' "s/<string>0.0.0</<string>${VERSION}</g" "$PLIST"
+          if ! grep -q "CFBundleShortVersionString" "$PLIST"; then
+            sed -i '' "s|</dict>|<key>CFBundleShortVersionString</key><string>${VERSION}</string></dict>|" "$PLIST"
+          fi
+
       - name: Ad-hoc sign
         run: |
           codesign --force --deep --sign - dist/SheetPic.app

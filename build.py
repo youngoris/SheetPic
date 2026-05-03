@@ -50,6 +50,34 @@ def build_macos():
     run(f'{sys.executable} -m PyInstaller --windowed --onedir --noconfirm --clean '
         f'--name={APP_NAME} {icon_args} {excludes} {MAIN_SCRIPT}')
 
+    # 写入版本号到 Info.plist
+    import re as _re
+    version = "1.0.0"
+    try:
+        with open(MAIN_SCRIPT, "r") as f:
+            m = _re.search(r'APP_VERSION\s*=\s*"([^"]+)"', f.read())
+            if m:
+                version = m.group(1)
+    except:
+        pass
+    plist_path = os.path.join(DIST_DIR, f"{APP_NAME}.app", "Contents", "Info.plist")
+    if os.path.exists(plist_path):
+        with open(plist_path, "r") as f:
+            plist = f.read()
+        plist = plist.replace(
+            "<string>0.0.0</string>",
+            f"<string>{version}</string>", 1
+        )
+        # 确保有 CFBundleShortVersionString
+        if "CFBundleShortVersionString" not in plist:
+            plist = plist.replace(
+                "</dict>\n</plist>",
+                f"\t<key>CFBundleShortVersionString</key>\n\t<string>{version}</string>\n</dict>\n</plist>"
+            )
+        with open(plist_path, "w") as f:
+            f.write(plist)
+        print(f"  版本号: {version}")
+
     # 签名
     print()
     print("=" * 50)
