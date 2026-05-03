@@ -29,7 +29,7 @@ import subprocess
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.5"
+APP_VERSION = "1.0.6"
 
 # ==========================================
 # 语言与配置
@@ -213,7 +213,7 @@ class SheetPicApp:
                     val = os.environ.get(var, '')
                     if 'zh' in val.lower():
                         return 'zh'
-        except:
+        except Exception:
             pass
         return 'en'
 
@@ -221,7 +221,7 @@ class SheetPicApp:
         try:
             with open(self.CONFIG_PATH, 'r', encoding='utf-8') as f:
                 return json.load(f)
-        except:
+        except (FileNotFoundError, json.JSONDecodeError, OSError):
             return {}
 
     def _save_config(self, lang):
@@ -488,7 +488,7 @@ class SheetPicApp:
                 if count >= mode_col_count:
                     return idx
             return 0
-        except:
+        except Exception:
             return 0
 
     def analyze_data(self):
@@ -511,7 +511,7 @@ class SheetPicApp:
                 try:
                     self.wb = openpyxl.load_workbook(self.file_path, data_only=True)
                     self.ws = self.wb.active
-                except:
+                except Exception:
                     pass
 
             if ext in ['.xlsx', '.xls']:
@@ -522,7 +522,7 @@ class SheetPicApp:
             if ext == '.csv':
                 try:
                     self.df = pd.read_csv(self.file_path, encoding='utf-8-sig', on_bad_lines='skip')
-                except:
+                except Exception:
                     self.df = pd.read_csv(self.file_path, encoding='gbk', on_bad_lines='skip')
             elif ext == '.html':
                 self.df = pd.read_html(self.file_path)[0]
@@ -549,7 +549,7 @@ class SheetPicApp:
                 try:
                     c = img.anchor._from.col
                     embed_counts[c] = embed_counts.get(c, 0) + 1
-                except:
+                except (AttributeError, IndexError):
                     pass
 
         url_counts = {}
@@ -683,8 +683,8 @@ class SheetPicApp:
     # ==========================================
 
     def run_extract_process(self):
-        import time
         t_start = time.time()
+        self._process_start_time = t_start
         dest = self.entry_dest.get()
         fname = "Clipboard" if self.file_path == "Clipboard" else os.path.splitext(os.path.basename(self.file_path))[0]
         out_dir = os.path.join(dest, f"{fname}_Img")
@@ -764,7 +764,7 @@ class SheetPicApp:
                             with open(path, "wb") as f:
                                 f.write(src_data._data())
                             success += 1
-                        except:
+                        except Exception:
                             fail += 1
                     else:
                         tasks.append(executor.submit(self.download_url, src_data, final_name, out_dir))
@@ -785,47 +785,76 @@ class SheetPicApp:
         duration = time.time() - t_start
         self.root.after(0, lambda: self.extract_finish(success, fail, skipped, out_dir, duration))
 
+    MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
+
     def download_url(self, url, filename_base, out_dir):
         if not self.is_running:
             return False, "Stopped"
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(url, headers=headers, timeout=10, stream=True)
-            if not self.is_running:
-                return False, "Stopped"
-            if r.status_code == 200:
-                ct = r.headers.get('Content-Type', '').lower()
-                ext = mimetypes.guess_extension(ct)
-                if not ext:
-                    ext = ".jpg"
-                path = os.path.join(out_dir, filename_base + ext)
-                with open(path, 'wb') as f:
-                    for chunk in r.iter_content(8192):
-                        if not self.is_running:
-                            return False, "Stopped"
-                        f.write(chunk)
-                return True, "OK"
-            elif r.status_code == 404:
-                return False, self.T['msg_404'].format(filename_base)
-            else:
-                return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code}")
-        except requests.exceptions.Timeout:
-            return False, self.T['msg_timeout'].format(filename_base)
-        except Exception as e:
-            return False, self.T['msg_err'].format(filename_base, str(e))
+        for attempt in range(2):
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                r = requests.get(url, headers=headers, timeout=10, stream=True)
+                if not self.is_running:
+                    return False, "Stopped"
+                if r.status_code == 200:
+                    cl = int(r.headers.get('Content-Length', 0))
+                    if cl > self.MAX_FILE_SIZE:
+                        return False, self.T['msg_err'].format(filename_base, f"File too large ({cl//1024//1024}MB)")
+                    ct = r.headers.get('Content-Type', '').lower()
+                    ext = mimetypes.guess_extension(ct)
+                    if not ext:
+                        ext = ".jpg"
+                    path = os.path.join(out_dir, filename_base + ext)
+                    written = 0
+                    with open(path, 'wb') as f:
+                        for chunk in r.iter_content(8192):
+                            if not self.is_running:
+                                return False, "Stopped"
+                            written += len(chunk)
+                            if written > self.MAX_FILE_SIZE:
+                                f.close()
+                                os.remove(path)
+                                return False, self.T['msg_err'].format(filename_base, "File too large")
+                            f.write(chunk)
+                    return True, "OK"
+                elif r.status_code == 404:
+                    return False, self.T['msg_404'].format(filename_base)
+                else:
+                    return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code}")
+            except requests.exceptions.Timeout:
+                if attempt == 0:
+                    continue
+                return False, self.T['msg_timeout'].format(filename_base)
+            except Exception as e:
+                if attempt == 0:
+                    continue
+                return False, self.T['msg_err'].format(filename_base, str(e))
+        return False, self.T['msg_err'].format(filename_base, "Max retries exceeded")
+
+    def _format_eta(self, current, total):
+        if current <= 0 or not hasattr(self, '_process_start_time'):
+            return ""
+        elapsed = time.time() - self._process_start_time
+        if elapsed < 1 or current < 2:
+            return ""
+        remaining = elapsed / current * (total - current)
+        if remaining < 60:
+            return f"  ETA {int(remaining)}s"
+        return f"  ETA {int(remaining//60)}m{int(remaining%60)}s"
 
     def update_progress_ext(self, current, total, success, fail, skipped, msg):
         if not self.is_running:
             return
         self.progress['value'] = current
-        self.lbl_status.config(text=self.T['status_run'].format(current, total, success, fail, skipped))
+        eta = self._format_eta(current, total)
+        self.lbl_status.config(text=self.T['status_run'].format(current, total, success, fail, skipped) + eta)
         if "OK" not in msg and "Process" not in msg:
             self.log(msg)
 
     def extract_finish(self, success, fail, skipped, path, duration):
         if self.is_running:
             self.lbl_status.config(text="Done")
-            self.progress['value'] = 0
+            self.progress['value'] = self.progress['maximum']
             msg = self.T['done_msg'].format(duration, success, fail, skipped, path)
             self.log("-" * 20)
             self.log(msg.replace("\n", " "))
@@ -858,36 +887,45 @@ class SheetPicApp:
     def download_to_bytesio(self, url, max_dim=None):
         if not self.is_running:
             return False, "Stopped"
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            r = requests.get(url, headers=headers, timeout=10)
-            if not self.is_running:
-                return False, "Stopped"
-            if r.status_code == 200:
-                pil_img = PILImage.open(BytesIO(r.content))
-                if max_dim:
-                    pil_img.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
-                buf = BytesIO()
-                if pil_img.mode in ('RGBA', 'LA', 'P'):
-                    pil_img = pil_img.convert('RGBA')
-                    pil_img.save(buf, format='PNG')
+        for attempt in range(2):
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                r = requests.get(url, headers=headers, timeout=10)
+                if not self.is_running:
+                    return False, "Stopped"
+                if r.status_code == 200:
+                    cl = int(r.headers.get('Content-Length', 0))
+                    if cl > self.MAX_FILE_SIZE:
+                        return False, self.T['msg_err'].format(url[:50], f"File too large ({cl//1024//1024}MB)")
+                    pil_img = PILImage.open(BytesIO(r.content))
+                    if max_dim:
+                        pil_img.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
+                    buf = BytesIO()
+                    if pil_img.mode in ('RGBA', 'LA', 'P'):
+                        pil_img = pil_img.convert('RGBA')
+                        pil_img.save(buf, format='PNG')
+                    else:
+                        pil_img = pil_img.convert('RGB')
+                        pil_img.save(buf, format='JPEG', quality=85)
+                    buf.seek(0)
+                    return True, buf
+                elif r.status_code == 404:
+                    return False, self.T['msg_404'].format(url[:50])
                 else:
-                    pil_img = pil_img.convert('RGB')
-                    pil_img.save(buf, format='JPEG', quality=85)
-                buf.seek(0)
-                return True, buf
-            elif r.status_code == 404:
-                return False, self.T['msg_404'].format(url[:50])
-            else:
-                return False, self.T['msg_err'].format(url[:50], f"HTTP {r.status_code}")
-        except requests.exceptions.Timeout:
-            return False, self.T['msg_timeout'].format(url[:50])
-        except Exception as e:
-            return False, self.T['msg_err'].format(url[:50], str(e))
+                    return False, self.T['msg_err'].format(url[:50], f"HTTP {r.status_code}")
+            except requests.exceptions.Timeout:
+                if attempt == 0:
+                    continue
+                return False, self.T['msg_timeout'].format(url[:50])
+            except Exception as e:
+                if attempt == 0:
+                    continue
+                return False, self.T['msg_err'].format(url[:50], str(e))
+        return False, self.T['msg_err'].format(url[:50], "Max retries exceeded")
 
     def run_embed_process(self):
-        import time
         t_start = time.time()
+        self._process_start_time = t_start
         dest = self.entry_dest.get()
         fname = "Clipboard" if self.file_path == "Clipboard" else os.path.splitext(os.path.basename(self.file_path))[0]
         out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
@@ -1045,12 +1083,13 @@ class SheetPicApp:
         if not self.is_running:
             return
         self.progress['value'] = current
-        self.lbl_status.config(text=self.T['embed_status_run'].format(current, total, success, fail))
+        eta = self._format_eta(current, total)
+        self.lbl_status.config(text=self.T['embed_status_run'].format(current, total, success, fail) + eta)
 
     def embed_finish(self, success, fail, path, duration):
         if self.is_running:
             self.lbl_status.config(text="Done")
-            self.progress['value'] = 0
+            self.progress['value'] = self.progress['maximum']
             msg = self.T['msg_embed_done'].format(duration, success, fail, path)
             self.log("-" * 20)
             self.log(msg.replace("\n", " "))

@@ -85,7 +85,7 @@ Go to [Releases](../../releases) and download:
 git clone https://github.com/youngoris/SheetPic.git
 cd SheetPic
 
-pip install pandas openpyxl xlrd lxml requests Pillow PyInstaller
+pip install -r requirements.txt
 
 python sheetpic.py
 ```
