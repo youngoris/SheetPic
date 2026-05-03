@@ -43,8 +43,12 @@ def build_macos():
     print("步骤 1: PyInstaller 打包")
     print("=" * 50)
     icon_args = f"--icon=icon.icns" if os.path.exists("icon.icns") else ""
+    excludes = " ".join(f"--exclude-module {m}" for m in [
+        "tqdm", "setuptools", "unittest", "test", "distutils",
+        "lib2to3", "pydoc", "tkinter.test", "numpy.testing",
+    ])
     run(f'{sys.executable} -m PyInstaller --windowed --onedir --noconfirm --clean '
-        f'--name={APP_NAME} {icon_args} {MAIN_SCRIPT}')
+        f'--name={APP_NAME} {icon_args} {excludes} {MAIN_SCRIPT}')
 
     # 签名
     print()

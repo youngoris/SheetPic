@@ -24,7 +24,13 @@ jobs:
       - name: Build with PyInstaller
         run: |
           python -m PyInstaller --windowed --onedir --noconfirm --clean \
-            --name=SheetPic --icon=icon.icns sheetpic.py
+            --name=SheetPic --icon=icon.icns \
+            --exclude-module tqdm --exclude-module setuptools \
+            --exclude-module unittest --exclude-module test \
+            --exclude-module distutils --exclude-module lib2to3 \
+            --exclude-module pydoc --exclude-module tkinter.test \
+            --exclude-module numpy.testing \
+            sheetpic.py
 
       - name: Ad-hoc sign
         run: |
@@ -63,7 +69,14 @@ jobs:
 
       - name: Build with PyInstaller
         run: |
-          python -m PyInstaller --windowed --onefile --noconfirm --clean --name=SheetPic sheetpic.py
+          python -m PyInstaller --windowed --onefile --noconfirm --clean --name=SheetPic \
+            --icon=icon.ico \
+            --exclude-module tqdm --exclude-module setuptools \
+            --exclude-module unittest --exclude-module test \
+            --exclude-module distutils --exclude-module lib2to3 \
+            --exclude-module pydoc --exclude-module tkinter.test \
+            --exclude-module numpy.testing \
+            sheetpic.py
 
       - name: Upload EXE
         uses: actions/upload-artifact@v4
