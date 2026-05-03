@@ -67,6 +67,11 @@ LANG_MAP = {
         'msg_embed_done': "耗时: {:.1f}s\n嵌入成功: {}\n下载失败: {}\n输出文件: {}",
         'msg_dl_fail': "[下载失败]",
         'msg_dl_skip': "[无URL]",
+        'msg_invalid_url': "⚠️ {}: [无效URL] {}",
+        'msg_conn_err': "❌ {}: [连接失败] {}",
+        'msg_ssl_err': "❌ {}: [SSL错误] {}",
+        'msg_too_large': "❌ {}: [文件过大] {}MB",
+        'msg_bad_image': "❌ {}: [图片格式错误] {}",
         'log_embed_start': "开始嵌入图片处理...",
         'log_embed_save': "正在保存Excel文件...",
         'embed_status_run': "嵌入: {}/{} (成功: {} | 失败: {})",
@@ -115,6 +120,11 @@ LANG_MAP = {
         'msg_embed_done': "Time: {:.1f}s\nEmbedded: {}\nFailed: {}\nOutput: {}",
         'msg_dl_fail': "[Download Failed]",
         'msg_dl_skip': "[No URL]",
+        'msg_invalid_url': "⚠️ {}: [Invalid URL] {}",
+        'msg_conn_err': "❌ {}: [Connection Error] {}",
+        'msg_ssl_err': "❌ {}: [SSL Error] {}",
+        'msg_too_large': "❌ {}: [File Too Large] {}MB",
+        'msg_bad_image': "❌ {}: [Bad Image] {}",
         'log_embed_start': "Starting image embedding...",
         'log_embed_save': "Saving Excel file...",
         'embed_status_run': "Embed: {} / {} (OK: {} | Fail: {})",
@@ -780,12 +790,19 @@ class SheetPicApp:
                     elif col_info['type'] == 'url':
                         val = str(self.df.iloc[i, c_idx]).strip()
                         if not val or val.lower() == 'nan' or "http" not in val.lower():
+                            if val and val.lower() != 'nan':
+                                self.root.after(0, lambda v=val: self.log(
+                                    self.T['msg_invalid_url'].format(base_name, v[:60])))
                             continue
                         if not val.startswith("http"):
                             m = re.search(r'(https?://[^\s;]+)', val)
                             if m:
                                 val = m.group(1)
-                        val = val.split('?')[0].split('!')[0]
+                            else:
+                                self.root.after(0, lambda v=val: self.log(
+                                    self.T['msg_invalid_url'].format(base_name, v[:60])))
+                                continue
+                        val = self.clean_url(val.split('?')[0].split('!')[0])
                         row_images.append(('url', val))
 
                 if not row_images:
@@ -839,7 +856,7 @@ class SheetPicApp:
                 if r.status_code == 200:
                     cl = int(r.headers.get('Content-Length', 0))
                     if cl > self.MAX_FILE_SIZE:
-                        return False, self.T['msg_err'].format(filename_base, f"File too large ({cl//1024//1024}MB)")
+                        return False, self.T['msg_too_large'].format(filename_base, cl // 1024 // 1024)
                     ct = r.headers.get('Content-Type', '').lower()
                     ext = mimetypes.guess_extension(ct)
                     if not ext:
@@ -854,21 +871,25 @@ class SheetPicApp:
                             if written > self.MAX_FILE_SIZE:
                                 f.close()
                                 os.remove(path)
-                                return False, self.T['msg_err'].format(filename_base, "File too large")
+                                return False, self.T['msg_too_large'].format(filename_base, written // 1024 // 1024)
                             f.write(chunk)
                     return True, "OK"
                 elif r.status_code == 404:
                     return False, self.T['msg_404'].format(filename_base)
                 else:
-                    return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code}")
+                    return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code} ({url[:60]})")
             except requests.exceptions.Timeout:
                 if attempt == 0:
                     continue
                 return False, self.T['msg_timeout'].format(filename_base)
+            except requests.exceptions.SSLError as e:
+                return False, self.T['msg_ssl_err'].format(filename_base, str(e)[:80])
+            except requests.exceptions.ConnectionError as e:
+                return False, self.T['msg_conn_err'].format(filename_base, str(e)[:80])
             except Exception as e:
                 if attempt == 0:
                     continue
-                return False, self.T['msg_err'].format(filename_base, str(e))
+                return False, self.T['msg_err'].format(filename_base, f"{type(e).__name__}: {str(e)[:60]}")
         return False, self.T['msg_err'].format(filename_base, "Max retries exceeded")
 
     def _format_eta(self, current, total):
@@ -936,8 +957,11 @@ class SheetPicApp:
                 if r.status_code == 200:
                     cl = int(r.headers.get('Content-Length', 0))
                     if cl > self.MAX_FILE_SIZE:
-                        return False, self.T['msg_err'].format(url[:50], f"File too large ({cl//1024//1024}MB)")
-                    pil_img = PILImage.open(BytesIO(r.content))
+                        return False, self.T['msg_too_large'].format(url[:50], cl // 1024 // 1024)
+                    try:
+                        pil_img = PILImage.open(BytesIO(r.content))
+                    except Exception as e:
+                        return False, self.T['msg_bad_image'].format(url[:50], str(e)[:60])
                     if max_dim:
                         pil_img.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
                     buf = BytesIO()
@@ -952,15 +976,19 @@ class SheetPicApp:
                 elif r.status_code == 404:
                     return False, self.T['msg_404'].format(url[:50])
                 else:
-                    return False, self.T['msg_err'].format(url[:50], f"HTTP {r.status_code}")
+                    return False, self.T['msg_err'].format(url[:50], f"HTTP {r.status_code} ({url[:60]})")
             except requests.exceptions.Timeout:
                 if attempt == 0:
                     continue
                 return False, self.T['msg_timeout'].format(url[:50])
+            except requests.exceptions.SSLError as e:
+                return False, self.T['msg_ssl_err'].format(url[:50], str(e)[:80])
+            except requests.exceptions.ConnectionError as e:
+                return False, self.T['msg_conn_err'].format(url[:50], str(e)[:80])
             except Exception as e:
                 if attempt == 0:
                     continue
-                return False, self.T['msg_err'].format(url[:50], str(e))
+                return False, self.T['msg_err'].format(url[:50], f"{type(e).__name__}: {str(e)[:60]}")
         return False, self.T['msg_err'].format(url[:50], "Max retries exceeded")
 
     def run_embed_process(self):
@@ -1006,8 +1034,16 @@ class SheetPicApp:
                     m = re.search(r'(https?://[^\s;]+)', url)
                     if m:
                         url = m.group(1)
-                url = self.clean_url(url)
+                    else:
+                        self.root.after(0, lambda u=url_raw: self.log(
+                            self.T['msg_invalid_url'].format(f"Row {i+1}", u[:60])))
+                        url = None
+                if url:
+                    url = self.clean_url(url)
             else:
+                if url_raw and url_raw.lower() != 'nan':
+                    self.root.after(0, lambda u=url_raw: self.log(
+                        self.T['msg_invalid_url'].format(f"Row {i+1}", u[:60])))
                 url = None
             rows_data.append(url)
 
