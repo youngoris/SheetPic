@@ -1,0 +1,91 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-macos:
+    runs-on: macos-14   # Apple Silicon (ARM64)
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller Pillow openpyxl pandas requests
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller --windowed --onedir --noconfirm --clean \
+            --name=SheetPic --icon=icon.icns sheetpic.py
+
+      - name: Ad-hoc sign
+        run: |
+          codesign --force --deep --sign - dist/SheetPic.app
+          codesign --verify --deep --strict dist/SheetPic.app || true
+
+      - name: Create DMG
+        run: |
+          mkdir -p dmg_staging
+          cp -r dist/SheetPic.app dmg_staging/
+          ln -s /Applications dmg_staging/Applications
+          hdiutil create -volname "SheetPic" \
+            -srcfolder dmg_staging \
+            -ov -format UDZO \
+            dist/SheetPic-macOS-ARM64.dmg
+
+      - name: Upload DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: macOS-ARM64
+          path: dist/SheetPic-macOS-ARM64.dmg
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pyinstaller Pillow openpyxl pandas requests
+
+      - name: Build with PyInstaller
+        run: |
+          python -m PyInstaller --windowed --onefile --noconfirm --clean --name=SheetPic sheetpic.py
+
+      - name: Upload EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: Windows-x64
+          path: dist/SheetPic.exe
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/macOS-ARM64/SheetPic-macOS-ARM64.dmg
+            artifacts/Windows-x64/SheetPic.exe
