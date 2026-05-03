@@ -92,11 +92,14 @@ jobs:
             --hidden-import xlrd --hidden-import lxml --hidden-import lxml.etree --hidden-import lxml.html \
             sheetpic.py
 
+      - name: Rename EXE
+        run: mv dist/SheetPic.exe dist/SheetPic-Windows-x64.exe
+
       - name: Upload EXE
         uses: actions/upload-artifact@v4
         with:
           name: Windows-x64
-          path: dist/SheetPic.exe
+          path: dist/SheetPic-Windows-x64.exe
 
   release:
     needs: [build-macos, build-windows]
@@ -115,4 +118,4 @@ jobs:
           generate_release_notes: true
           files: |
             artifacts/macOS-ARM64/SheetPic-macOS-ARM64.dmg
-            artifacts/Windows-x64/SheetPic.exe
+            artifacts/Windows-x64/SheetPic-Windows-x64.exe
