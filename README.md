@@ -3,6 +3,7 @@
 **Batch Image Extract & Embed Tool for Spreadsheets**
 **表格图片批量提取 & 嵌入工具**
 
+[![GitHub](https://img.shields.io/badge/GitHub-SheetPic-181717?logo=github)](https://github.com/youngoris/SheetPic)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Built%20with-Python%203.10%2B-blue.svg)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows-lightgrey.svg)]()
@@ -119,6 +120,10 @@ git push origin v1.0.0
 - **Packaging**: PyInstaller
 
 ---
+
+## Author
+
+**Andre** - [GitHub](https://github.com/youngoris)
 
 ## License
 
