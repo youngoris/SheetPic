@@ -1146,6 +1146,11 @@ class SheetPicApp:
                                     out_col += 1
                     ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_skip'])
 
+        # Clear URL column cell values when deleting URL column in original workbook
+        if del_url and write_original:
+            for r in range(header_row_excel + 1, ws.max_row + 1):
+                ws.cell(row=r, column=img_header_col).value = None
+
         self.root.after(0, lambda: self.log(self.T['log_embed_save']))
         wb_out.save(out_file)
         wb_out.close()
