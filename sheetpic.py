@@ -260,8 +260,8 @@ class SheetPicApp:
         style = ttk.Style()
         style.theme_use('clam')
         if platform.system() == "Darwin":
-            base_font = ("PingFang SC", 13)
-            bold_font = ("PingFang SC", 13, "bold")
+            base_font = ("PingFang SC", 11)
+            bold_font = ("PingFang SC", 11, "bold")
         else:
             base_font = ("Microsoft YaHei UI", 9)
             bold_font = ("Microsoft YaHei UI", 10, "bold")
