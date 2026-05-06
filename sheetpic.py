@@ -49,6 +49,7 @@ LANG_MAP = {
         'lbl_dest': "保存位置:",
         'btn_dest': "修改",
         'lbl_sheet': "工作表:",
+        'unnamed': "未命名",
         # Extract
         'lbl_img': "图片来源 (默认智能合并)",
         'lbl_code': "文件名列 (ID/SKU)",
@@ -103,6 +104,7 @@ LANG_MAP = {
         'lbl_dest': "Output:",
         'btn_dest': "Change",
         'lbl_sheet': "Sheet:",
+        'unnamed': "Unnamed",
         # Extract
         'lbl_img': "Image Source (Auto Merge)",
         'lbl_code': "Filename Column",
@@ -685,6 +687,8 @@ class SheetPicApp:
 
     def process_df(self):
         self.df = self.df.astype(str)
+        unnamed = self.T['unnamed']
+        self.df.columns = [unnamed if str(c).startswith("Unnamed") else c for c in self.df.columns]
         cols = list(self.df.columns)
 
         # --- Extract: 扫描嵌入图 + URL ---
