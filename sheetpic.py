@@ -594,25 +594,36 @@ class SheetPicApp:
             if n_cols == 0:
                 return 0
             row_counts = df_raw.count(axis=1)
-
-            # Check first rows: all-string rows are likely headers.
-            # Skip title rows: all-string but followed by another all-string row (the actual header).
-            for idx in range(min(3, len(df_raw))):
-                row = df_raw.iloc[idx]
-                non_null = row.dropna()
-                if len(non_null) < n_cols * 0.5:
-                    continue
-                if not all(isinstance(v, str) for v in non_null):
-                    continue
-                # If next row is also all-string, this is likely a title, not a header
-                if idx + 1 < len(df_raw):
-                    next_non_null = df_raw.iloc[idx + 1].dropna()
-                    if all(isinstance(v, str) for v in next_non_null):
-                        continue
-                return idx
-
             if row_counts.empty:
                 return 0
+
+            max_filled = int(row_counts.max())
+            min_filled = max(int(max_filled * 0.3), 3)
+            scan_rows = min(10, len(df_raw))
+
+            # Phase 1: String-content heuristic
+            # Headers are mostly text labels. Scan first 10 rows, score by % of strings.
+            # Among consecutive "string-heavy" rows (titles + header), the LAST one is
+            # the header — it's followed by mixed-type data rows.
+            candidates = []
+            for idx in range(scan_rows):
+                non_null = df_raw.iloc[idx].dropna()
+                if len(non_null) < min_filled:
+                    continue
+                str_count = sum(1 for v in non_null if isinstance(v, str))
+                if str_count / len(non_null) >= 0.7:
+                    candidates.append(idx)
+
+            if candidates:
+                best = candidates[0]
+                for i in range(1, len(candidates)):
+                    if candidates[i] == candidates[i - 1] + 1:
+                        best = candidates[i]
+                    else:
+                        break
+                return best
+
+            # Phase 2: Fallback — mode-based density detection
             mode_col_count = row_counts.value_counts().idxmax()
             for idx, count in row_counts.items():
                 if count >= mode_col_count:
