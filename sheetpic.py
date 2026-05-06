@@ -590,7 +590,27 @@ class SheetPicApp:
             if os.path.splitext(file_path)[1].lower() == '.csv':
                 return 0
             df_raw = pd.read_excel(file_path, header=None, nrows=30, sheet_name=sheet_name)
+            n_cols = df_raw.shape[1]
+            if n_cols == 0:
+                return 0
             row_counts = df_raw.count(axis=1)
+
+            # Check first rows: all-string rows are likely headers.
+            # Skip title rows: all-string but followed by another all-string row (the actual header).
+            for idx in range(min(3, len(df_raw))):
+                row = df_raw.iloc[idx]
+                non_null = row.dropna()
+                if len(non_null) < n_cols * 0.5:
+                    continue
+                if not all(isinstance(v, str) for v in non_null):
+                    continue
+                # If next row is also all-string, this is likely a title, not a header
+                if idx + 1 < len(df_raw):
+                    next_non_null = df_raw.iloc[idx + 1].dropna()
+                    if all(isinstance(v, str) for v in next_non_null):
+                        continue
+                return idx
+
             if row_counts.empty:
                 return 0
             mode_col_count = row_counts.value_counts().idxmax()
