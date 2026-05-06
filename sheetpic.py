@@ -89,6 +89,11 @@ LANG_MAP = {
         'msg_404': "❌ {}: [404] 链接失效/不存在",
         'msg_timeout': "⚠️ {}: [超时] 网络连接卡顿",
         'msg_err': "❌ {}: [错误] {}",
+        'menu_help': "帮助",
+        'menu_check_update': "检查更新",
+        'update_available': "⬆ 发现新版本 {}！点击下载",
+        'update_none': "✅ 当前已是最新版本",
+        'update_check_fail': "检查更新失败",
     },
     'en': {
         'title': "SheetPic - Spreadsheet Image Extract & Embed",
@@ -144,6 +149,11 @@ LANG_MAP = {
         'msg_404': "❌ {}: [404] Not Found",
         'msg_timeout': "⚠️ {}: [Timeout] Connection failed",
         'msg_err': "❌ {}: [Error] {}",
+        'menu_help': "Help",
+        'menu_check_update': "Check for Updates",
+        'update_available': "⬆ New version {} available! Click to download",
+        'update_none': "✅ Already up to date",
+        'update_check_fail': "Update check failed",
     }
 }
 
@@ -187,6 +197,7 @@ class SheetPicApp:
         self.setup_style()
         self.setup_ui()
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+        self.root.after(2000, lambda: self.check_update(auto=True))
 
     CONFIG_PATH = os.path.join(os.path.expanduser("~"), ".sheetpic_config")
 
@@ -302,6 +313,9 @@ class SheetPicApp:
         lang_menu.add_command(label="中文", command=lambda: self.switch_lang('zh'))
         lang_menu.add_command(label="English", command=lambda: self.switch_lang('en'))
         menubar.add_cascade(label=self.T['menu_lang'], menu=lang_menu)
+        help_menu = tk.Menu(menubar, tearoff=0)
+        help_menu.add_command(label=self.T['menu_check_update'], command=lambda: self.check_update(auto=False))
+        menubar.add_cascade(label=self.T['menu_help'], menu=help_menu)
         self.root.config(menu=menubar)
 
         # === card1: 数据来源 (共享) ===
@@ -374,6 +388,9 @@ class SheetPicApp:
         footer.pack(side='bottom', fill='x', padx=15, pady=8)
         tk.Label(footer, text=self.T['footer_text'].format(APP_VERSION),
                  font=("Arial", 8), bg=COLORS['bg'], fg=COLORS['text_sub']).pack(side='left')
+        self.lbl_update = tk.Label(footer, text="", font=("Arial", 8, "bold"),
+                                   bg=COLORS['bg'], fg=COLORS['primary'], cursor="hand2")
+        self.lbl_update.pack(side='left', padx=(10, 0))
         lbl_link = tk.Label(footer, text="GitHub", font=("Arial", 8),
                              bg=COLORS['bg'], fg=COLORS['primary'], cursor="hand2")
         lbl_link.pack(side='right')
@@ -1365,6 +1382,34 @@ class SheetPicApp:
                 os.startfile(path)
         except Exception:
             pass
+
+    def check_update(self, auto=False):
+        """Check GitHub for latest release. auto=True suppresses log messages."""
+        def _do():
+            try:
+                import urllib.request
+                url = "https://api.github.com/repos/youngoris/SheetPic/releases/latest"
+                req = urllib.request.Request(url, headers={"User-Agent": "SheetPic"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    data = json.loads(resp.read())
+                remote_tag = data.get("tag_name", "").lstrip("v")
+                if not remote_tag:
+                    return
+                remote_ver = tuple(int(x) for x in remote_tag.split("."))
+                local_ver = tuple(int(x) for x in APP_VERSION.split("."))
+                if remote_ver > local_ver:
+                    dl_url = data.get("html_url", GITHUB_URL + "/releases/latest")
+                    self.root.after(0, lambda: self._show_update(remote_tag, dl_url))
+                elif not auto:
+                    self.root.after(0, lambda: self.log(self.T['update_none']))
+            except Exception:
+                if not auto:
+                    self.root.after(0, lambda: self.log(self.T['update_check_fail']))
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _show_update(self, version, url):
+        self.lbl_update.config(text=self.T['update_available'].format(version))
+        self.lbl_update.bind("<Button-1>", lambda e: webbrowser.open(url))
 
     def on_closing(self):
         self.is_running = False
