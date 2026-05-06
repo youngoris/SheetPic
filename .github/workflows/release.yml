@@ -1,11 +1,6 @@
 name: Build & Release
 
-on:
-  push:
-    branches: [main]
-    tags:
-      - 'v*'
-  workflow_dispatch:
+on: [push, workflow_dispatch]
 
 permissions:
   contents: write
@@ -13,7 +8,7 @@ permissions:
 jobs:
   # Auto-bump: runs only on push to main (not tags, not manual)
   bump:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/')
+    if: startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
