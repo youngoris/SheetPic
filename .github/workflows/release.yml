@@ -6,27 +6,34 @@ permissions:
   contents: write
 
 jobs:
-  # Auto-bump: runs only on push to main (not tags, not manual)
   bump:
     if: startsWith(github.ref, 'refs/heads/')
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - run: |
+      - name: Auto bump version
+        id: bump
+        run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           python3 scripts/auto_bump.py
+          VERSION=$(sed -n 's/.*APP_VERSION *= *"\([^"]*\)".*/\1/p' sheetpic.py)
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
 
-  # Build: runs only on tag push
   build-macos-arm64:
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: macos-14   # Apple Silicon (ARM64)
+    needs: bump
+    if: needs.bump.result == 'success' && needs.bump.outputs.tag != ''
+    runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.tag }}
 
       - uses: actions/setup-python@v5
         with:
@@ -81,13 +88,16 @@ jobs:
           path: dist/SheetPic-macOS-ARM64.dmg
 
   build-windows:
-    if: startsWith(github.ref, 'refs/tags/')
+    needs: bump
+    if: needs.bump.result == 'success' && needs.bump.outputs.tag != ''
     runs-on: windows-latest
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.bump.outputs.tag }}
 
       - uses: actions/setup-python@v5
         with:
@@ -121,27 +131,22 @@ jobs:
           path: dist/SheetPic-Windows-x64.exe
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build-macos-arm64, build-windows]
+    needs: [bump, build-macos-arm64, build-windows]
+    if: needs.bump.outputs.tag != ''
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Get version from source
-        id: version
-        run: |
-          VERSION=$(sed -n 's/.*APP_VERSION *= *"\([^"]*\)".*/\1/p' sheetpic.py)
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+        with:
+          ref: ${{ needs.bump.outputs.tag }}
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:
           path: artifacts
 
-      - name: Flatten artifacts (unzip DMG/EXE from artifact ZIPs)
+      - name: Flatten artifacts
         run: |
           mkdir -p release_files
           find artifacts -name '*.dmg' -exec cp {} release_files/ \;
@@ -151,7 +156,7 @@ jobs:
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: "SheetPic ${{ steps.version.outputs.tag }}"
+          tag_name: ${{ needs.bump.outputs.tag }}
+          name: "SheetPic ${{ needs.bump.outputs.tag }}"
           generate_release_notes: true
           files: release_files/*
