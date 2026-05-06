@@ -1385,26 +1385,59 @@ class SheetPicApp:
 
     def check_update(self, auto=False):
         """Check GitHub for latest release. auto=True suppresses log messages."""
+        API_URL = "https://api.github.com/repos/youngoris/SheetPic/releases/latest"
+        RAW_URL = "https://raw.githubusercontent.com/youngoris/SheetPic/main/sheetpic.py"
+        PROXIES = [
+            "https://ghfast.top/",
+            "https://gh-proxy.com/",
+        ]
+        RELEASES_URL = GITHUB_URL + "/releases/latest"
+
+        def _fetch(url, timeout=5):
+            req = urllib.request.Request(url, headers={"User-Agent": "SheetPic"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode("utf-8", errors="ignore")
+
         def _do():
+            import urllib.request
+            remote_ver = None
+            dl_url = RELEASES_URL
+
+            # Source 1: GitHub API (works globally, may be blocked in China)
             try:
-                import urllib.request
-                url = "https://api.github.com/repos/youngoris/SheetPic/releases/latest"
-                req = urllib.request.Request(url, headers={"User-Agent": "SheetPic"})
-                with urllib.request.urlopen(req, timeout=5) as resp:
-                    data = json.loads(resp.read())
-                remote_tag = data.get("tag_name", "").lstrip("v")
-                if not remote_tag:
-                    return
-                remote_ver = tuple(int(x) for x in remote_tag.split("."))
-                local_ver = tuple(int(x) for x in APP_VERSION.split("."))
-                if remote_ver > local_ver:
-                    dl_url = data.get("html_url", GITHUB_URL + "/releases/latest")
-                    self.root.after(0, lambda: self._show_update(remote_tag, dl_url))
-                elif not auto:
-                    self.root.after(0, lambda: self.log(self.T['update_none']))
+                text = _fetch(API_URL)
+                data = json.loads(text)
+                tag = data.get("tag_name", "").lstrip("v")
+                if tag:
+                    remote_ver = tuple(int(x) for x in tag.split("."))
+                    dl_url = data.get("html_url", RELEASES_URL)
             except Exception:
+                pass
+
+            # Source 2: Raw file via proxy (fallback for China)
+            if remote_ver is None:
+                for proxy in PROXIES:
+                    try:
+                        text = _fetch(proxy + RAW_URL, timeout=8)
+                        m = re.search(r'APP_VERSION\s*=\s*"([^"]+)"', text)
+                        if m:
+                            remote_ver = tuple(int(x) for x in m.group(1).split("."))
+                            break
+                    except Exception:
+                        continue
+
+            if remote_ver is None:
                 if not auto:
                     self.root.after(0, lambda: self.log(self.T['update_check_fail']))
+                return
+
+            local_ver = tuple(int(x) for x in APP_VERSION.split("."))
+            if remote_ver > local_ver:
+                remote_tag = ".".join(str(x) for x in remote_ver)
+                self.root.after(0, lambda: self._show_update(remote_tag, dl_url))
+            elif not auto:
+                self.root.after(0, lambda: self.log(self.T['update_none']))
+
         threading.Thread(target=_do, daemon=True).start()
 
     def _show_update(self, version, url):
