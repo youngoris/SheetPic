@@ -25,6 +25,7 @@ import json
 import sys
 import time
 import subprocess
+import urllib.request
 
 # ==========================================
 # 版本号
@@ -279,8 +280,8 @@ class SheetPicApp:
             base_font = ("PingFang SC", 11)
             bold_font = ("PingFang SC", 11, "bold")
         else:
-            base_font = ("Microsoft YaHei UI", 9)
-            bold_font = ("Microsoft YaHei UI", 10, "bold")
+            base_font = ("Microsoft YaHei UI", 11)
+            bold_font = ("Microsoft YaHei UI", 11, "bold")
 
         style.configure(".", background=COLORS['card'], foreground=COLORS['text'], font=base_font)
         style.configure("TFrame", background=COLORS['card'])
@@ -322,7 +323,7 @@ class SheetPicApp:
         card1 = tk.Frame(self.root, bg=COLORS['card'], padx=15, pady=15)
         card1.pack(fill='x', padx=15, pady=(20, 5))
         tk.Label(card1, text=self.T['sec_source'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8, "bold")).pack(anchor='w', pady=(0, 5))
+                 fg=COLORS['text_sub'], font=("Arial", 10, "bold")).pack(anchor='w', pady=(0, 5))
         row1 = tk.Frame(card1, bg=COLORS['card'])
         row1.pack(fill='x')
         self.entry_path = ttk.Entry(row1)
@@ -372,7 +373,7 @@ class SheetPicApp:
                                          style="Green.Horizontal.TProgressbar")
         self.progress.pack(fill='x', pady=(0, 5))
         self.lbl_status = tk.Label(action_frame, text="...", bg=COLORS['bg'],
-                                    fg=COLORS['text_sub'], font=("Arial", 8))
+                                    fg=COLORS['text_sub'], font=("Arial", 10))
         self.lbl_status.pack(anchor='e')
         btn_box = tk.Frame(action_frame, bg=COLORS['bg'])
         btn_box.pack(fill='x', pady=5)
@@ -387,11 +388,11 @@ class SheetPicApp:
         footer = tk.Frame(self.root, bg=COLORS['bg'])
         footer.pack(side='bottom', fill='x', padx=15, pady=8)
         tk.Label(footer, text=self.T['footer_text'].format(APP_VERSION),
-                 font=("Arial", 8), bg=COLORS['bg'], fg=COLORS['text_sub']).pack(side='left')
-        self.lbl_update = tk.Label(footer, text="", font=("Arial", 8, "bold"),
+                 font=("Arial", 10), bg=COLORS['bg'], fg=COLORS['text_sub']).pack(side='left')
+        self.lbl_update = tk.Label(footer, text="", font=("Arial", 10, "bold"),
                                    bg=COLORS['bg'], fg=COLORS['primary'], cursor="hand2")
         self.lbl_update.pack(side='left', padx=(10, 0))
-        lbl_link = tk.Label(footer, text="GitHub", font=("Arial", 8),
+        lbl_link = tk.Label(footer, text="GitHub", font=("Arial", 10),
                              bg=COLORS['bg'], fg=COLORS['primary'], cursor="hand2")
         lbl_link.pack(side='right')
         lbl_link.bind("<Button-1>", lambda e: webbrowser.open(GITHUB_URL))
@@ -399,7 +400,7 @@ class SheetPicApp:
         # === 日志区 ===
         log_frame = tk.Frame(self.root, bg=COLORS['card'], bd=1, relief="flat")
         log_frame.pack(fill='both', expand=True, padx=15, pady=(5, 5))
-        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, font=("Consolas", 8),
+        self.log_text = scrolledtext.ScrolledText(log_frame, height=8, font=("Consolas", 10),
                                                    bd=0, highlightthickness=0)
         self.log_text.pack(fill='both', expand=True)
         self.log_text.configure(bg="#F5F5F5", fg="#444", padx=10, pady=10, state='normal')
@@ -410,33 +411,33 @@ class SheetPicApp:
     def _build_extract_tab(self, parent):
         """构建「提取图片」Tab"""
         tk.Label(parent, text=self.T['sec_settings'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8, "bold")).pack(anchor='w', pady=(0, 5))
+                 fg=COLORS['text_sub'], font=("Arial", 10, "bold")).pack(anchor='w', pady=(0, 5))
 
         row_cols = tk.Frame(parent, bg=COLORS['card'])
         row_cols.pack(fill='x')
         col_box1 = tk.Frame(row_cols, bg=COLORS['card'])
         col_box1.pack(side='left', fill='x', expand=True, padx=(0, 5))
         tk.Label(col_box1, text=self.T['lbl_img'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8)).pack(anchor='w')
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
         self.combo_img = ttk.Combobox(col_box1, state="disabled")
         self.combo_img.pack(fill='x', pady=(2, 0))
         col_box2 = tk.Frame(row_cols, bg=COLORS['card'])
         col_box2.pack(side='left', fill='x', expand=True, padx=(5, 0))
         tk.Label(col_box2, text=self.T['lbl_code'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8)).pack(anchor='w')
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
         self.combo_code = ttk.Combobox(col_box2, state="disabled")
         self.combo_code.pack(fill='x', pady=(2, 0))
 
     def _build_embed_tab(self, parent):
         """构建「嵌入图片」Tab"""
         tk.Label(parent, text=self.T['sec_embed_settings'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8, "bold")).pack(anchor='w', pady=(0, 5))
+                 fg=COLORS['text_sub'], font=("Arial", 10, "bold")).pack(anchor='w', pady=(0, 5))
 
         # URL列
         row_url = tk.Frame(parent, bg=COLORS['card'])
         row_url.pack(fill='x', pady=(0, 8))
         tk.Label(row_url, text=self.T['lbl_url_col'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8)).pack(anchor='w')
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
         self.combo_url = ttk.Combobox(row_url, state="disabled")
         self.combo_url.pack(fill='x', pady=(2, 0))
 
@@ -444,7 +445,7 @@ class SheetPicApp:
         row_sku = tk.Frame(parent, bg=COLORS['card'])
         row_sku.pack(fill='x', pady=(0, 8))
         tk.Label(row_sku, text=self.T['lbl_sku_col'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8)).pack(anchor='w')
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
         self.combo_sku = ttk.Combobox(row_sku, state="disabled")
         self.combo_sku.pack(fill='x', pady=(2, 0))
 
@@ -452,7 +453,7 @@ class SheetPicApp:
         row_size = tk.Frame(parent, bg=COLORS['card'])
         row_size.pack(fill='x')
         tk.Label(row_size, text=self.T['lbl_img_size'], bg=COLORS['card'],
-                 fg=COLORS['text_sub'], font=("Arial", 8)).pack(anchor='w')
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
         size_frame = tk.Frame(parent, bg=COLORS['card'])
         size_frame.pack(fill='x', pady=(2, 0))
         self.entry_max_dim = ttk.Entry(size_frame, width=8)
@@ -463,7 +464,7 @@ class SheetPicApp:
         self.var_original = tk.BooleanVar(value=False)
         chk_original = tk.Checkbutton(parent, text=self.T['chk_original'],
                                        variable=self.var_original, bg=COLORS['card'],
-                                       fg=COLORS['text_sub'], font=("Arial", 8),
+                                       fg=COLORS['text_sub'], font=("Arial", 10),
                                        activebackground=COLORS['card'],
                                        command=self._toggle_max_dim)
         chk_original.pack(anchor='w', pady=(6, 0))
@@ -472,7 +473,7 @@ class SheetPicApp:
         self.var_del_url = tk.BooleanVar(value=False)
         chk_del = tk.Checkbutton(parent, text=self.T['chk_del_url'],
                                   variable=self.var_del_url, bg=COLORS['card'],
-                                  fg=COLORS['text_sub'], font=("Arial", 8),
+                                  fg=COLORS['text_sub'], font=("Arial", 10),
                                   activebackground=COLORS['card'])
         chk_del.pack(anchor='w', pady=(8, 0))
 
@@ -480,7 +481,7 @@ class SheetPicApp:
         self.var_write_original = tk.BooleanVar(value=False)
         chk_wo = tk.Checkbutton(parent, text=self.T['chk_write_original'],
                                  variable=self.var_write_original, bg=COLORS['card'],
-                                 fg=COLORS['text_sub'], font=("Arial", 8),
+                                 fg=COLORS['text_sub'], font=("Arial", 10),
                                  activebackground=COLORS['card'])
         chk_wo.pack(anchor='w', pady=(8, 0))
 
@@ -1399,7 +1400,6 @@ class SheetPicApp:
                 return resp.read().decode("utf-8", errors="ignore")
 
         def _do():
-            import urllib.request
             remote_ver = None
             dl_url = RELEASES_URL
 
