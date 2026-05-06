@@ -48,6 +48,7 @@ LANG_MAP = {
         'btn_clip': "📋 剪贴板",
         'lbl_dest': "保存位置:",
         'btn_dest': "修改",
+        'lbl_sheet': "工作表:",
         # Extract
         'lbl_img': "图片来源 (默认智能合并)",
         'lbl_code': "文件名列 (ID/SKU)",
@@ -101,6 +102,7 @@ LANG_MAP = {
         'btn_clip': "📋 Clip",
         'lbl_dest': "Output:",
         'btn_dest': "Change",
+        'lbl_sheet': "Sheet:",
         # Extract
         'lbl_img': "Image Source (Auto Merge)",
         'lbl_code': "Filename Column",
@@ -170,6 +172,7 @@ class SheetPicApp:
         self.ws = None
         self.header_row = 0
         self.is_running = False
+        self.sheet_names = []
 
         # Extract state
         self.sorted_img_cols = []
@@ -311,6 +314,14 @@ class SheetPicApp:
         self._setup_dnd(self.entry_path)
         ttk.Button(row1, text=self.T['btn_browse'], width=10, command=self.select_file).pack(side='left', padx=2)
         ttk.Button(row1, text=self.T['btn_clip'], width=8, command=self.load_clipboard).pack(side='left')
+
+        # 工作表选择 (xlsx多Sheet)
+        row_sheet = tk.Frame(card1, bg=COLORS['card'])
+        row_sheet.pack(fill='x', pady=(10, 0))
+        tk.Label(row_sheet, text=self.T['lbl_sheet'], bg=COLORS['card'], width=8, anchor='w').pack(side='left')
+        self.combo_sheet = ttk.Combobox(row_sheet, state="disabled")
+        self.combo_sheet.pack(side='left', fill='x', expand=True, padx=5, ipady=3)
+        self.combo_sheet.bind('<<ComboboxSelected>>', self.on_sheet_changed)
 
         # 输出目录 (共享)
         row_dest = tk.Frame(card1, bg=COLORS['card'])
@@ -485,11 +496,54 @@ class SheetPicApp:
             self.entry_path.delete(0, tk.END)
             self.entry_path.insert(0, path)
             self.file_path = path
+            self.combo_sheet.set('')
+            self.combo_sheet['values'] = []
+            self.combo_sheet.config(state='disabled')
             self.analyze_data()
 
     def on_tab_changed(self, event):
         tab = self.notebook.index(self.notebook.select())
         self.mode = 'extract' if tab == 0 else 'embed'
+
+    def _update_sheet_combo(self, selected):
+        self.combo_sheet['values'] = self.sheet_names
+        if selected in self.sheet_names:
+            self.combo_sheet.set(selected)
+        elif self.sheet_names:
+            self.combo_sheet.current(0)
+        if len(self.sheet_names) > 1:
+            self.combo_sheet.config(state='readonly')
+        else:
+            self.combo_sheet.config(state='disabled')
+
+    def on_sheet_changed(self, event=None):
+        if not self.wb:
+            return
+        name = self.combo_sheet.get()
+        if name not in self.wb.sheetnames:
+            return
+        self.ws = self.wb[name]
+        self.log(f">>> Sheet: {name}")
+        threading.Thread(target=self._reload_sheet_data, daemon=True).start()
+
+    def _reload_sheet_data(self):
+        self.root.after(0, lambda: self.progress.config(mode='indeterminate'))
+        self.root.after(0, lambda: self.progress.start(15))
+        self.df = None
+        self.header_row = 0
+        try:
+            selected_sheet = self.combo_sheet.get()
+            self.header_row = self.find_robust_header(self.file_path, sheet_name=selected_sheet)
+            if self.header_row > 0:
+                self.root.after(0, lambda: self.log(self.T['log_header'].format(self.header_row + 1)))
+            self.df = pd.read_excel(self.file_path, header=self.header_row, sheet_name=selected_sheet)
+        except Exception as e:
+            self.root.after(0, lambda: self.log(f"❌ Error: {e}"))
+        self.root.after(0, lambda: self.progress.stop())
+        self.root.after(0, lambda: self.progress.config(mode='determinate'))
+        self.root.after(0, lambda: self.progress.__setitem__('value', 0))
+        if self.df is not None and not self.df.empty:
+            self.process_df()
 
     def log(self, msg):
         now = datetime.datetime.now().strftime("[%H:%M:%S]")
@@ -502,6 +556,9 @@ class SheetPicApp:
             self.file_path = p
             self.entry_path.delete(0, tk.END)
             self.entry_path.insert(0, os.path.basename(p))
+            self.combo_sheet.set('')
+            self.combo_sheet['values'] = []
+            self.combo_sheet.config(state='disabled')
             threading.Thread(target=self.analyze_data, daemon=True).start()
 
     def select_folder(self):
@@ -517,6 +574,9 @@ class SheetPicApp:
             if not self.df.empty:
                 self.file_path = "Clipboard"
                 self.wb = None
+                self.combo_sheet.set('')
+                self.combo_sheet['values'] = []
+                self.combo_sheet.config(state='disabled')
                 self.entry_path.delete(0, tk.END)
                 self.entry_path.insert(0, "Clipboard Data")
                 self.process_df()
@@ -525,11 +585,11 @@ class SheetPicApp:
         except Exception as e:
             self.log(f"❌ Error: {e}")
 
-    def find_robust_header(self, file_path):
+    def find_robust_header(self, file_path, sheet_name=0):
         try:
             if os.path.splitext(file_path)[1].lower() == '.csv':
                 return 0
-            df_raw = pd.read_excel(file_path, header=None, nrows=30)
+            df_raw = pd.read_excel(file_path, header=None, nrows=30, sheet_name=sheet_name)
             row_counts = df_raw.count(axis=1)
             if row_counts.empty:
                 return 0
@@ -557,15 +617,19 @@ class SheetPicApp:
         try:
             ext = os.path.splitext(self.file_path)[1].lower() if self.file_path != "Clipboard" else ""
 
+            selected_sheet = 0
             if ext == '.xlsx':
                 try:
                     self.wb = openpyxl.load_workbook(self.file_path, data_only=True)
                     self.ws = self.wb.active
+                    self.sheet_names = self.wb.sheetnames
+                    selected_sheet = self.ws.title
+                    self.root.after(0, lambda: self._update_sheet_combo(selected_sheet))
                 except Exception:
                     pass
 
             if ext in ['.xlsx', '.xls']:
-                self.header_row = self.find_robust_header(self.file_path)
+                self.header_row = self.find_robust_header(self.file_path, sheet_name=selected_sheet)
                 if self.header_row > 0:
                     self.log(self.T['log_header'].format(self.header_row + 1))
 
@@ -577,7 +641,7 @@ class SheetPicApp:
             elif ext == '.html':
                 self.df = pd.read_html(self.file_path)[0]
             else:
-                self.df = pd.read_excel(self.file_path, header=self.header_row)
+                self.df = pd.read_excel(self.file_path, header=self.header_row, sheet_name=selected_sheet)
 
         except Exception as e:
             self.log(f"❌ Error: {e}")
@@ -1013,12 +1077,13 @@ class SheetPicApp:
 
         del_url = self.var_del_url.get()
 
+        header_row_excel = self.header_row + 1
         if write_original:
             out_file, ws, wb_out, img_header_col, header_row_excel = \
                 self._embed_setup_original(fname, url_col_idx, del_url)
         else:
-            out_file, ws, wb_out, img_header_col = \
-                self._embed_setup_new(fname, url_col_idx, del_url)
+            out_file, ws, wb_out, img_header_col, header_row_excel = \
+                self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
 
         orig_cols = list(self.df.columns)
         total = len(self.df)
@@ -1084,10 +1149,8 @@ class SheetPicApp:
 
             is_ok, data = result
 
-            if write_original:
-                excel_row = header_row_excel + 1 + i
-            else:
-                excel_row = i + 2
+            excel_row = header_row_excel + 1 + i
+            if not write_original:
                 # Write cell values for new-workbook mode
                 out_col = 1
                 for j in range(len(orig_cols)):
@@ -1128,10 +1191,8 @@ class SheetPicApp:
         if not self.is_running:
             for i in range(total):
                 if row_results[i] is None:
-                    if write_original:
-                        excel_row = header_row_excel + 1 + i
-                    else:
-                        excel_row = i + 2
+                    excel_row = header_row_excel + 1 + i
+                    if not write_original:
                         out_col = 1
                         for j in range(len(orig_cols)):
                             if del_url and j == url_col_idx:
@@ -1158,8 +1219,8 @@ class SheetPicApp:
         duration = time.time() - t_start
         self.root.after(0, lambda: self.embed_finish(success, fail, out_file, duration))
 
-    def _embed_setup_new(self, fname, url_col_idx, del_url=False):
-        """Create a new workbook for embedding. Returns (out_file, ws, wb, img_header_col)."""
+    def _embed_setup_new(self, fname, url_col_idx, del_url=False, header_row_excel=1):
+        """Create a new workbook for embedding. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
         wb_out = openpyxl.Workbook()
@@ -1170,18 +1231,18 @@ class SheetPicApp:
         img_header_col = 1
         for i, col_name in enumerate(orig_cols):
             if del_url and i == url_col_idx:
-                ws.cell(row=1, column=out_col, value="图片")
+                ws.cell(row=header_row_excel, column=out_col, value="图片")
                 img_header_col = out_col
                 out_col += 1
             else:
-                ws.cell(row=1, column=out_col, value=col_name)
+                ws.cell(row=header_row_excel, column=out_col, value=col_name)
                 out_col += 1
                 if not del_url and i == url_col_idx:
-                    ws.cell(row=1, column=out_col, value="图片")
+                    ws.cell(row=header_row_excel, column=out_col, value="图片")
                     img_header_col = out_col
                     out_col += 1
 
-        return out_file, ws, wb_out, img_header_col
+        return out_file, ws, wb_out, img_header_col, header_row_excel
 
     def _embed_setup_original(self, fname, url_col_idx, del_url=False):
         """Load original workbook, insert image column. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
@@ -1190,7 +1251,7 @@ class SheetPicApp:
 
         if self.file_path == "Clipboard" or not os.path.exists(self.file_path):
             # Clipboard mode: fallback to new workbook
-            return self._embed_setup_new(fname, url_col_idx, del_url) + (2,)
+            return self._embed_setup_new(fname, url_col_idx, del_url)
 
         wb_out = openpyxl.load_workbook(self.file_path)
         ws = wb_out.active
