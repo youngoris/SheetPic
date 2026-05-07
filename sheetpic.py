@@ -644,25 +644,20 @@ class SheetPicApp:
         self.combo_sku = ttk.Combobox(row_sku, state="disabled")
         self.combo_sku.pack(fill='x', pady=(2, 0))
 
-        # 最大边长
+        # 最大边长 + 3 个选项 同行排列（4 列：[输入框] [chk] [chk] [chk]）
         row_size = tk.Frame(parent, bg=COLORS['card'])
         row_size.pack(fill='x')
         tk.Label(row_size, text=self.T['lbl_img_size'], bg=COLORS['card'],
                  fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
+
         size_frame = tk.Frame(parent, bg=COLORS['card'])
         size_frame.pack(fill='x', pady=(2, 0))
         self.entry_max_dim = ttk.Entry(size_frame, width=8)
-        self.entry_max_dim.pack(side='left', padx=(0, 6))
+        self.entry_max_dim.grid(row=0, column=0, padx=(0, 12), sticky='w')
         self.entry_max_dim.insert(0, "500")
 
-        # 选项区：2 列布局以节省垂直空间
-        opts_frame = tk.Frame(parent, bg=COLORS['card'])
-        opts_frame.pack(fill='x', pady=(6, 0))
-        opts_frame.columnconfigure(0, weight=1, uniform='opt')
-        opts_frame.columnconfigure(1, weight=1, uniform='opt')
-
         def _mk_chk(text, var, **kw):
-            return tk.Checkbutton(opts_frame, text=text, variable=var,
+            return tk.Checkbutton(size_frame, text=text, variable=var,
                                   bg=COLORS['card'], fg=COLORS['text_sub'],
                                   font=("Arial", 10),
                                   activebackground=COLORS['card'], **kw)
@@ -671,17 +666,17 @@ class SheetPicApp:
         self.var_original = tk.BooleanVar(value=False)
         chk_original = _mk_chk(self.T['chk_original'], self.var_original,
                                command=self._toggle_max_dim)
-        chk_original.grid(row=0, column=0, sticky='w', pady=2)
+        chk_original.grid(row=0, column=1, sticky='w', padx=(0, 8))
 
         # 删除URL列
         self.var_del_url = tk.BooleanVar(value=False)
         chk_del = _mk_chk(self.T['chk_del_url'], self.var_del_url)
-        chk_del.grid(row=0, column=1, sticky='w', pady=2)
+        chk_del.grid(row=0, column=2, sticky='w', padx=(0, 8))
 
         # 写入原文件
         self.var_write_original = tk.BooleanVar(value=False)
         chk_wo = _mk_chk(self.T['chk_write_original'], self.var_write_original)
-        chk_wo.grid(row=1, column=0, columnspan=2, sticky='w', pady=2)
+        chk_wo.grid(row=0, column=3, sticky='w')
 
     # ==========================================
     # 通用方法
