@@ -381,6 +381,7 @@ class SheetPicApp:
         self.header_row = 0
         self.is_running = False
         self.sheet_names = []
+        self._ui_thread = threading.current_thread()
 
         # Extract state
         self.sorted_img_cols = []
@@ -707,7 +708,7 @@ class SheetPicApp:
             self.combo_sheet.set('')
             self.combo_sheet['values'] = []
             self.combo_sheet.config(state='disabled')
-            self.analyze_data()
+            threading.Thread(target=self.analyze_data, daemon=True).start()
 
     def on_tab_changed(self, event):
         tab = self.notebook.index(self.notebook.select())
@@ -754,6 +755,13 @@ class SheetPicApp:
             self.process_df()
 
     def log(self, msg):
+        if getattr(self, '_ui_thread', None) is not threading.current_thread():
+            try:
+                self.root.after(0, self.log, msg)
+            except (RuntimeError, tk.TclError):
+                pass
+            return
+
         now = datetime.datetime.now().strftime("[%H:%M:%S]")
         self.log_text.insert(tk.END, f"{now} {msg}\n")
         self.log_text.see(tk.END)
@@ -866,7 +874,6 @@ class SheetPicApp:
             self.process_df()
 
     def process_df(self):
-        self.df = self.df.astype(str)
         unnamed = self.T['unnamed']
         # Rename "Unnamed: N" placeholders, then de-duplicate so every column
         # has a unique label. Without this, duplicate names (common in real
@@ -897,14 +904,9 @@ class SheetPicApp:
         for i in range(len(cols)):
             # Access by position to avoid duplicate-name pitfalls.
             series = self.df.iloc[:, i]
-            try:
-                sample_has_url = series.head(50).str.contains("http", case=False, na=False).any()
-            except Exception:
-                continue
-            if sample_has_url:
-                real_count = int(series.str.contains("http", case=False, na=False).sum())
-                if real_count > 0:
-                    url_counts[i] = real_count
+            real_count = self._count_http_values(series)
+            if real_count > 0:
+                url_counts[i] = real_count
 
         all_img_indices = set(embed_counts.keys()) | set(url_counts.keys())
         self.sorted_img_cols = []
@@ -946,6 +948,17 @@ class SheetPicApp:
         sku_opts = code_opts[:]  # same list
 
         self.root.after(0, lambda: self.update_ui_lists(img_opts, code_opts, url_opts, sku_opts))
+
+    @staticmethod
+    def _count_http_values(series):
+        sample = series.dropna().head(50)
+        if sample.empty:
+            return 0
+        sample_text = sample.astype(str)
+        if not sample_text.str.contains("http", case=False, na=False, regex=False).any():
+            return 0
+        full_text = series.dropna().astype(str)
+        return int(full_text.str.contains("http", case=False, na=False, regex=False).sum())
 
     def update_ui_lists(self, img_opts, code_opts, url_opts, sku_opts):
         # Extract combos

@@ -103,6 +103,16 @@ def test_columns_are_made_unique():
     assert len(set(app.df.columns)) == len(app.df.columns)
 
 
+def test_process_df_does_not_coerce_all_values_to_strings():
+    df = pd.DataFrame({
+        '链接': ['http://x/1.jpg', None],
+        '数量': [1, 2],
+    })
+    app = _build_app(df)
+    app.process_df()
+    assert app.df.iloc[0, 1] == 1
+
+
 def test_real_user_file_qinrun(tmp_path):
     """The actual failing file shape: '链接' header + 4 trailing blank columns."""
     rows = [
