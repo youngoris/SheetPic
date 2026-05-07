@@ -655,30 +655,33 @@ class SheetPicApp:
         self.entry_max_dim.pack(side='left', padx=(0, 6))
         self.entry_max_dim.insert(0, "500")
 
+        # 选项区：2 列布局以节省垂直空间
+        opts_frame = tk.Frame(parent, bg=COLORS['card'])
+        opts_frame.pack(fill='x', pady=(6, 0))
+        opts_frame.columnconfigure(0, weight=1, uniform='opt')
+        opts_frame.columnconfigure(1, weight=1, uniform='opt')
+
+        def _mk_chk(text, var, **kw):
+            return tk.Checkbutton(opts_frame, text=text, variable=var,
+                                  bg=COLORS['card'], fg=COLORS['text_sub'],
+                                  font=("Arial", 10),
+                                  activebackground=COLORS['card'], **kw)
+
         # 插入原图
         self.var_original = tk.BooleanVar(value=False)
-        chk_original = tk.Checkbutton(parent, text=self.T['chk_original'],
-                                       variable=self.var_original, bg=COLORS['card'],
-                                       fg=COLORS['text_sub'], font=("Arial", 10),
-                                       activebackground=COLORS['card'],
-                                       command=self._toggle_max_dim)
-        chk_original.pack(anchor='w', pady=(6, 0))
+        chk_original = _mk_chk(self.T['chk_original'], self.var_original,
+                               command=self._toggle_max_dim)
+        chk_original.grid(row=0, column=0, sticky='w', pady=2)
 
         # 删除URL列
         self.var_del_url = tk.BooleanVar(value=False)
-        chk_del = tk.Checkbutton(parent, text=self.T['chk_del_url'],
-                                  variable=self.var_del_url, bg=COLORS['card'],
-                                  fg=COLORS['text_sub'], font=("Arial", 10),
-                                  activebackground=COLORS['card'])
-        chk_del.pack(anchor='w', pady=(8, 0))
+        chk_del = _mk_chk(self.T['chk_del_url'], self.var_del_url)
+        chk_del.grid(row=0, column=1, sticky='w', pady=2)
 
         # 写入原文件
         self.var_write_original = tk.BooleanVar(value=False)
-        chk_wo = tk.Checkbutton(parent, text=self.T['chk_write_original'],
-                                 variable=self.var_write_original, bg=COLORS['card'],
-                                 fg=COLORS['text_sub'], font=("Arial", 10),
-                                 activebackground=COLORS['card'])
-        chk_wo.pack(anchor='w', pady=(8, 0))
+        chk_wo = _mk_chk(self.T['chk_write_original'], self.var_write_original)
+        chk_wo.grid(row=1, column=0, columnspan=2, sticky='w', pady=2)
 
     # ==========================================
     # 通用方法
