@@ -875,7 +875,19 @@ class SheetPicApp:
     def process_df(self):
         self.df = self.df.astype(str)
         unnamed = self.T['unnamed']
-        self.df.columns = [unnamed if str(c).startswith("Unnamed") else c for c in self.df.columns]
+        # Rename "Unnamed: N" placeholders, then de-duplicate so every column
+        # has a unique label. Without this, duplicate names (common in real
+        # spreadsheets, e.g. two "条码" columns or several blank header cells)
+        # cause `df[name]` to return a DataFrame instead of a Series, breaking
+        # `.str.contains` and silently hiding image/URL columns.
+        new_cols = []
+        seen = {}
+        for c in self.df.columns:
+            base = unnamed if str(c).startswith("Unnamed") else str(c)
+            n = seen.get(base, 0)
+            seen[base] = n + 1
+            new_cols.append(base if n == 0 else f"{base}.{n}")
+        self.df.columns = new_cols
         cols = list(self.df.columns)
 
         # --- Extract: 扫描嵌入图 + URL ---
@@ -889,10 +901,15 @@ class SheetPicApp:
                     pass
 
         url_counts = {}
-        for i, c in enumerate(cols):
-            sample_has_url = self.df[c].head(50).str.contains("http", case=False).any()
+        for i in range(len(cols)):
+            # Access by position to avoid duplicate-name pitfalls.
+            series = self.df.iloc[:, i]
+            try:
+                sample_has_url = series.head(50).str.contains("http", case=False, na=False).any()
+            except Exception:
+                continue
             if sample_has_url:
-                real_count = self.df[c].str.contains("http", case=False, na=False).sum()
+                real_count = int(series.str.contains("http", case=False, na=False).sum())
                 if real_count > 0:
                     url_counts[i] = real_count
 
