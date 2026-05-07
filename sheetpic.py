@@ -167,6 +167,201 @@ COLORS = {
 GITHUB_URL = "https://github.com/youngoris/SheetPic"
 
 
+# ==========================================
+# Header-row detection (exposed for testing)
+# ==========================================
+HEADER_KEYWORDS = {
+    # Chinese
+    '图片', '图', '图像', '主图', '链接', '网址', '地址', '编号', '编码', '货号',
+    '型号', '商品', '产品', '名称', '品名', '规格', '颜色', '尺寸', '尺码',
+    '价格', '单价', '售价', '成本', '数量', '库存', '单位', '重量', '材质',
+    '描述', '备注', '分类', '类目', '品牌', '日期', '时间', '订单', '客户',
+    'sku', '条码', '条形码', '序号',
+    # English
+    'image', 'img', 'photo', 'picture', 'thumbnail', 'url', 'link', 'href',
+    'id', 'code', 'sku', 'name', 'title', 'product', 'item', 'brand',
+    'price', 'cost', 'qty', 'quantity', 'stock', 'size', 'color', 'colour',
+    'weight', 'desc', 'description', 'note', 'remark', 'category', 'date',
+    'time', 'order', 'customer', 'no', 'no.', 'number',
+}
+
+
+def _is_blank(v):
+    if v is None:
+        return True
+    if isinstance(v, float):
+        try:
+            import math
+            return math.isnan(v)
+        except Exception:
+            return False
+    if isinstance(v, str):
+        return v.strip() == ''
+    return False
+
+
+def _looks_like_url(s):
+    if not isinstance(s, str):
+        return False
+    s = s.strip().lower()
+    return s.startswith('http://') or s.startswith('https://') or s.startswith('//')
+
+
+def _cell_type(v):
+    """Classify a cell into one of: blank/str/num/date/url."""
+    if _is_blank(v):
+        return 'blank'
+    if isinstance(v, bool):
+        return 'num'
+    if isinstance(v, (int, float)):
+        return 'num'
+    try:
+        import datetime as _dt
+        if isinstance(v, (_dt.datetime, _dt.date)):
+            return 'date'
+    except Exception:
+        pass
+    if isinstance(v, str):
+        if _looks_like_url(v):
+            return 'url'
+        # numeric-looking strings still count as numbers (e.g., "123")
+        s = v.strip()
+        try:
+            float(s.replace(',', ''))
+            return 'num'
+        except Exception:
+            pass
+        return 'str'
+    return 'str'
+
+
+def _row_signature(row):
+    """Return (n_filled, type_counts dict, values list)."""
+    vals = [v for v in row if not _is_blank(v)]
+    types = {'str': 0, 'num': 0, 'date': 0, 'url': 0}
+    for v in row:
+        t = _cell_type(v)
+        if t == 'blank':
+            continue
+        types[t] = types.get(t, 0) + 1
+    return len(vals), types, vals
+
+
+def _score_header_row(df_raw, scan_rows=15):
+    """Score the first `scan_rows` rows of `df_raw` and return the best index.
+
+    `df_raw` is a pandas DataFrame loaded with header=None.
+    """
+    import math as _math
+    if df_raw is None or df_raw.empty:
+        return 0
+    n_total_rows = len(df_raw)
+    n_cols = df_raw.shape[1]
+    if n_cols == 0:
+        return 0
+
+    scan_rows = min(scan_rows, n_total_rows)
+    # Widest non-trivial row width across the whole sample → expected col count
+    row_widths = [_row_signature(df_raw.iloc[i].tolist())[0] for i in range(n_total_rows)]
+    max_width = max(row_widths) if row_widths else 0
+    if max_width == 0:
+        return 0
+
+    # Most common width across data-region rows (skip first 3 to avoid title bias)
+    from collections import Counter
+    tail_widths = [w for w in row_widths[3:] if w > 0]
+    if tail_widths:
+        mode_width = Counter(tail_widths).most_common(1)[0][0]
+    else:
+        mode_width = max_width
+
+    expected_width = max(mode_width, int(max_width * 0.6))
+
+    best_idx = 0
+    best_score = -_math.inf
+
+    for idx in range(scan_rows):
+        row_vals = df_raw.iloc[idx].tolist()
+        n_filled, types, vals = _row_signature(row_vals)
+        if n_filled == 0:
+            continue
+
+        # Fill ratio relative to expected width
+        fill_ratio = min(1.0, n_filled / expected_width) if expected_width else 0
+        # String purity
+        str_ratio = types['str'] / n_filled
+        # No URLs in headers
+        url_penalty = -0.5 if types['url'] > 0 else 0
+        # Numbers in a "header" row are suspicious — but tolerated up to ~30%
+        num_ratio = (types['num'] + types['date']) / n_filled
+
+        # Uniqueness (case-insensitive, stripped)
+        normalized = [str(v).strip().lower() for v in vals]
+        uniq_ratio = len(set(normalized)) / len(normalized) if normalized else 0
+
+        # Average label length — headers are short
+        avg_len = sum(len(str(v)) for v in vals) / len(vals)
+        # Penalize very long cells (likely descriptions/titles)
+        len_score = 1.0 if avg_len <= 12 else max(0.0, 1.0 - (avg_len - 12) / 30.0)
+
+        # Keyword match
+        kw_hits = 0
+        for v in vals:
+            if not isinstance(v, str):
+                continue
+            low = v.strip().lower()
+            if low in HEADER_KEYWORDS:
+                kw_hits += 1
+                continue
+            # Substring match for common Chinese keywords
+            for kw in HEADER_KEYWORDS:
+                if len(kw) >= 2 and kw in low:
+                    kw_hits += 1
+                    break
+        kw_score = min(1.0, kw_hits / max(1, n_filled))
+
+        # "Followed by data" — look at next 3 rows: should be ≥ as wide and
+        # contain MORE numbers/dates/URLs than this row (mixed types).
+        followed_score = 0.0
+        look = min(3, n_total_rows - idx - 1)
+        if look > 0:
+            wider_or_equal = 0
+            more_mixed = 0
+            for j in range(1, look + 1):
+                nf, tt, _ = _row_signature(df_raw.iloc[idx + j].tolist())
+                if nf >= max(1, n_filled - 1):
+                    wider_or_equal += 1
+                # data rows typically have more non-string content than the header
+                if (tt['num'] + tt['date'] + tt['url']) > types['num'] + types['date'] + types['url']:
+                    more_mixed += 1
+            followed_score = (wider_or_equal / look) * 0.5 + (more_mixed / look) * 0.5
+        else:
+            # last row of the sheet can't be a header
+            followed_score = -1.0
+
+        # Sparse-row penalty (likely a merged title spanning few cells)
+        sparse_penalty = -0.6 if n_filled < max(2, expected_width * 0.5) else 0.0
+
+        score = (
+            fill_ratio * 2.0 +
+            str_ratio * 1.5 +
+            uniq_ratio * 1.5 +
+            len_score * 1.0 +
+            kw_score * 1.5 +
+            followed_score * 2.0 +
+            url_penalty +
+            sparse_penalty -
+            num_ratio * 1.2
+        )
+
+        # Tie-breaker: prefer the LATER row (titles come first)
+        if score > best_score + 1e-9 or (abs(score - best_score) <= 1e-9 and idx > best_idx):
+            best_score = score
+            best_idx = idx
+
+    return best_idx
+
+
 class SheetPicApp:
     def __init__(self, root):
         self.root = root
@@ -606,49 +801,23 @@ class SheetPicApp:
             self.log(f"❌ Error: {e}")
 
     def find_robust_header(self, file_path, sheet_name=0):
+        """Locate the header row in an Excel sheet.
+
+        Strategy: score the first ~15 rows on multiple signals and pick the
+        best. A real header row is characterized by:
+          - High fill ratio (close to the widest row in the sheet)
+          - Mostly string cells with short labels
+          - Unique non-null values (no duplicate column names)
+          - Followed by data rows of comparable width but with mixed types
+            (numbers / dates / mixed strings)
+          - Bonus when cells contain common header keywords
+          - Penalty when the row is sparse (likely a merged title)
+        """
         try:
             if os.path.splitext(file_path)[1].lower() == '.csv':
                 return 0
-            df_raw = pd.read_excel(file_path, header=None, nrows=30, sheet_name=sheet_name)
-            n_cols = df_raw.shape[1]
-            if n_cols == 0:
-                return 0
-            row_counts = df_raw.count(axis=1)
-            if row_counts.empty:
-                return 0
-
-            max_filled = int(row_counts.max())
-            min_filled = max(int(max_filled * 0.3), 3)
-            scan_rows = min(10, len(df_raw))
-
-            # Phase 1: String-content heuristic
-            # Headers are mostly text labels. Scan first 10 rows, score by % of strings.
-            # Among consecutive "string-heavy" rows (titles + header), the LAST one is
-            # the header — it's followed by mixed-type data rows.
-            candidates = []
-            for idx in range(scan_rows):
-                non_null = df_raw.iloc[idx].dropna()
-                if len(non_null) < min_filled:
-                    continue
-                str_count = sum(1 for v in non_null if isinstance(v, str))
-                if str_count / len(non_null) >= 0.7:
-                    candidates.append(idx)
-
-            if candidates:
-                best = candidates[0]
-                for i in range(1, len(candidates)):
-                    if candidates[i] == candidates[i - 1] + 1:
-                        best = candidates[i]
-                    else:
-                        break
-                return best
-
-            # Phase 2: Fallback — mode-based density detection
-            mode_col_count = row_counts.value_counts().idxmax()
-            for idx, count in row_counts.items():
-                if count >= mode_col_count:
-                    return idx
-            return 0
+            df_raw = pd.read_excel(file_path, header=None, nrows=40, sheet_name=sheet_name)
+            return _score_header_row(df_raw)
         except Exception:
             return 0
 
