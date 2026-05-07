@@ -48,16 +48,31 @@ def update_file(new_version):
         f.write(new_content)
 
 
-def git(*args):
+def git(*args, check=True):
     r = subprocess.run(["git"] + list(args), capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"git {' '.join(args)} failed: {r.stderr}")
-        sys.exit(1)
+        if check:
+            print(f"git {' '.join(args)} failed: {r.stderr}")
+            sys.exit(1)
+        return None
     return r.stdout.strip()
+
+
+def _sync_remote():
+    """Fetch + rebase local branch onto its remote tip so subsequent push is
+    fast-forward. Also fetch all tags so latest-tag detection is correct."""
+    git("fetch", "--prune", "--tags", "--force", "origin", check=False)
+    # Determine current branch (CI runs in detached HEAD on PRs, but bump
+    # workflow runs on push to a branch).
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", check=False)
+    if branch and branch != "HEAD":
+        git("pull", "--rebase", "origin", branch, check=False)
 
 
 def main():
     os.chdir(os.path.join(os.path.dirname(__file__), ".."))
+
+    _sync_remote()
 
     file_ver = get_current_version()
     tag_ver = get_latest_tag_version()
@@ -83,7 +98,15 @@ def main():
 
     git("add", SOURCE_FILE)
     git("commit", "-m", f"Bump to {tag} [skip ci]")
-    git("push")
+
+    # Push commit; if rejected (race with another push), rebase and retry once.
+    branch = git("rev-parse", "--abbrev-ref", "HEAD", check=False) or "main"
+    push = subprocess.run(["git", "push", "origin", branch],
+                          capture_output=True, text=True)
+    if push.returncode != 0:
+        print(f"Initial push rejected, rebasing and retrying:\n{push.stderr}")
+        git("pull", "--rebase", "origin", branch, check=False)
+        git("push", "origin", branch)
 
     git("tag", tag)
     git("push", "origin", tag)
