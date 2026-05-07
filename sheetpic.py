@@ -77,6 +77,8 @@ LANG_MAP = {
         'msg_bad_image': "❌ {}: [图片格式错误] {}",
         'log_embed_start': "开始嵌入图片处理...",
         'log_embed_save': "正在保存Excel文件...",
+        'log_embed_format_fallback': "{} 不支持保留格式写入，已自动改为新建 .xlsx 输出。",
+        'msg_embed_error': "❌ 嵌入处理失败: {}",
         'embed_status_run': "嵌入: {}/{} (成功: {} | 失败: {})",
         # Shared
         'btn_start': "开始处理",
@@ -137,6 +139,8 @@ LANG_MAP = {
         'msg_bad_image': "❌ {}: [Bad Image] {}",
         'log_embed_start': "Starting image embedding...",
         'log_embed_save': "Saving Excel file...",
+        'log_embed_format_fallback': "{} cannot be written with preserved formatting; creating a new .xlsx instead.",
+        'msg_embed_error': "❌ Embed failed: {}",
         'embed_status_run': "Embed: {} / {} (OK: {} | Fail: {})",
         # Shared
         'btn_start': "Start",
@@ -1319,16 +1323,22 @@ class SheetPicApp:
         url_col_idx = self.embed_url_col_idx
         sku_col_idx = self.embed_sku_col_idx
         write_original = self.var_write_original.get()
+        self._embed_setup_used_original = write_original
 
         del_url = self.var_del_url.get()
 
         header_row_excel = self.header_row + 1
-        if write_original:
-            out_file, ws, wb_out, img_header_col, header_row_excel = \
-                self._embed_setup_original(fname, url_col_idx, del_url)
-        else:
-            out_file, ws, wb_out, img_header_col, header_row_excel = \
-                self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
+        try:
+            if write_original:
+                out_file, ws, wb_out, img_header_col, header_row_excel = \
+                    self._embed_setup_original(fname, url_col_idx, del_url)
+            else:
+                out_file, ws, wb_out, img_header_col, header_row_excel = \
+                    self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
+        except Exception as e:
+            self.root.after(0, self.embed_error_finish, f"{type(e).__name__}: {e}")
+            return
+        write_original = self._embed_setup_used_original
 
         orig_cols = list(self.df.columns)
         total = len(self.df)
@@ -1458,8 +1468,16 @@ class SheetPicApp:
                 ws.cell(row=r, column=img_header_col).value = None
 
         self.root.after(0, lambda: self.log(self.T['log_embed_save']))
-        wb_out.save(out_file)
-        wb_out.close()
+        try:
+            wb_out.save(out_file)
+            wb_out.close()
+        except Exception as e:
+            try:
+                wb_out.close()
+            except Exception:
+                pass
+            self.root.after(0, self.embed_error_finish, f"{type(e).__name__}: {e}")
+            return
 
         duration = time.time() - t_start
         self.root.after(0, lambda: self.embed_finish(success, fail, out_file, duration))
@@ -1493,17 +1511,26 @@ class SheetPicApp:
         """Load original workbook, insert image column. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_WithImages.xlsx")
+        header_row_excel = self.header_row + 1
 
         if self.file_path == "Clipboard" or not os.path.exists(self.file_path):
             # Clipboard mode: fallback to new workbook
-            return self._embed_setup_new(fname, url_col_idx, del_url)
+            self._embed_setup_used_original = False
+            return self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
+
+        ext = os.path.splitext(self.file_path)[1].lower()
+        if ext != '.xlsx':
+            display_ext = ext or "current file"
+            self.root.after(0, lambda e=display_ext: self.log(
+                self.T['log_embed_format_fallback'].format(e)))
+            self._embed_setup_used_original = False
+            return self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
 
         wb_out = openpyxl.load_workbook(self.file_path)
         ws = wb_out.active
 
         # Find header row and URL column in the Excel sheet
         url_col_name = str(self.df.columns[url_col_idx])
-        header_row_excel = self.header_row + 1  # 0-based DataFrame → 1-based Excel
 
         url_excel_col = None
         for col_idx in range(1, ws.max_column + 1):
@@ -1546,6 +1573,17 @@ class SheetPicApp:
         self.progress['value'] = current
         eta = self._format_eta(current, total)
         self.lbl_status.config(text=self.T['embed_status_run'].format(current, total, success, fail) + eta)
+
+    def embed_error_finish(self, error):
+        self.lbl_status.config(text="Error")
+        try:
+            self.progress.stop()
+        except Exception:
+            pass
+        self.log(self.T['msg_embed_error'].format(error))
+        self.is_running = False
+        self.btn_run.config(state='normal')
+        self.btn_stop.config(state='disabled')
 
     def embed_finish(self, success, fail, path, duration):
         if self.is_running:
