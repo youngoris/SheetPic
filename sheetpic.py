@@ -608,19 +608,15 @@ class SheetPicApp:
         tk.Label(parent, text=self.T['sec_settings'], bg=COLORS['card'],
                  fg=COLORS['text_sub'], font=("Arial", 10, "bold")).pack(anchor='w', pady=(0, 5))
 
-        row_cols = tk.Frame(parent, bg=COLORS['card'])
-        row_cols.pack(fill='x')
-        col_box1 = tk.Frame(row_cols, bg=COLORS['card'])
-        col_box1.pack(side='left', fill='x', expand=True, padx=(0, 5))
-        tk.Label(col_box1, text=self.T['lbl_img'], bg=COLORS['card'],
+        # 上下两行布局
+        tk.Label(parent, text=self.T['lbl_img'], bg=COLORS['card'],
                  fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
-        self.combo_img = ttk.Combobox(col_box1, state="disabled")
-        self.combo_img.pack(fill='x', pady=(2, 0))
-        col_box2 = tk.Frame(row_cols, bg=COLORS['card'])
-        col_box2.pack(side='left', fill='x', expand=True, padx=(5, 0))
-        tk.Label(col_box2, text=self.T['lbl_code'], bg=COLORS['card'],
+        self.combo_img = ttk.Combobox(parent, state="disabled")
+        self.combo_img.pack(fill='x', pady=(2, 6))
+
+        tk.Label(parent, text=self.T['lbl_code'], bg=COLORS['card'],
                  fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
-        self.combo_code = ttk.Combobox(col_box2, state="disabled")
+        self.combo_code = ttk.Combobox(parent, state="disabled")
         self.combo_code.pack(fill='x', pady=(2, 0))
 
     def _build_embed_tab(self, parent):
@@ -653,7 +649,7 @@ class SheetPicApp:
         size_frame = tk.Frame(parent, bg=COLORS['card'])
         size_frame.pack(fill='x', pady=(2, 0))
         self.entry_max_dim = ttk.Entry(size_frame, width=8)
-        self.entry_max_dim.grid(row=0, column=0, padx=(0, 12), sticky='w')
+        self.entry_max_dim.grid(row=0, column=0, rowspan=2, padx=(0, 14), sticky='nw', pady=(2, 0))
         self.entry_max_dim.insert(0, "500")
 
         def _mk_chk(text, var, **kw):
@@ -662,21 +658,20 @@ class SheetPicApp:
                                   font=("Arial", 10),
                                   activebackground=COLORS['card'], **kw)
 
-        # 插入原图
+        # 第二列：插入原图 + 嵌入后删除原URL列（上下两行）
         self.var_original = tk.BooleanVar(value=False)
         chk_original = _mk_chk(self.T['chk_original'], self.var_original,
                                command=self._toggle_max_dim)
-        chk_original.grid(row=0, column=1, sticky='w', padx=(0, 8))
+        chk_original.grid(row=0, column=1, sticky='w', padx=(0, 12))
 
-        # 删除URL列
         self.var_del_url = tk.BooleanVar(value=False)
         chk_del = _mk_chk(self.T['chk_del_url'], self.var_del_url)
-        chk_del.grid(row=0, column=2, sticky='w', padx=(0, 8))
+        chk_del.grid(row=1, column=1, sticky='w', padx=(0, 12))
 
-        # 写入原文件
+        # 第三列：写入原文件
         self.var_write_original = tk.BooleanVar(value=False)
         chk_wo = _mk_chk(self.T['chk_write_original'], self.var_write_original)
-        chk_wo.grid(row=0, column=3, sticky='w')
+        chk_wo.grid(row=0, column=2, sticky='w')
 
     # ==========================================
     # 通用方法
