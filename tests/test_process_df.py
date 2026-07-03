@@ -145,6 +145,24 @@ def test_url_library_enables_embed_without_url_column():
     assert app.btn_run.state == 'normal'
 
 
+def test_url_library_import_indexes_all_identifier_columns():
+    df = pd.DataFrame({
+        'SKU': ['S001', 'S002'],
+        '条形码': ['690001', '690002'],
+        '商品名称': ['杯子', '盘子'],
+        '图片': ['https://img.example.com/1.jpg', 'https://img.example.com/2.jpg'],
+    })
+    app = _build_app(df)
+
+    added = app._merge_url_library_from_df(df)
+
+    assert added == 4
+    assert app.url_library['S001'] == 'https://img.example.com/1.jpg'
+    assert app.url_library['690001'] == 'https://img.example.com/1.jpg'
+    assert app.url_library['S002'] == 'https://img.example.com/2.jpg'
+    assert app.url_library['690002'] == 'https://img.example.com/2.jpg'
+
+
 def test_real_user_file_qinrun(tmp_path):
     """The actual failing file shape: '链接' header + 4 trailing blank columns."""
     rows = [
