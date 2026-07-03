@@ -10,13 +10,7 @@ import math
 import os
 import threading
 import platform
-import requests
 import concurrent.futures
-import pandas as pd
-import openpyxl
-from openpyxl.utils import get_column_letter, column_index_from_string
-from openpyxl.drawing.image import Image as XlImage
-from PIL import Image as PILImage
 from io import BytesIO
 import webbrowser
 import datetime
@@ -27,6 +21,63 @@ import sys
 import time
 import subprocess
 import urllib.request
+
+
+class _LazyImport:
+    """Import heavy optional modules only when a feature actually needs them."""
+
+    def __init__(self, loader):
+        self._loader = loader
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = self._loader()
+        return self._module
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+
+def _load_pandas():
+    import pandas as _pd
+    return _pd
+
+
+def _load_openpyxl():
+    import openpyxl as _openpyxl
+    return _openpyxl
+
+
+def _load_requests():
+    import requests as _requests
+    return _requests
+
+
+def _load_pil_image():
+    from PIL import Image as _PILImage
+    return _PILImage
+
+
+pd = _LazyImport(_load_pandas)
+openpyxl = _LazyImport(_load_openpyxl)
+requests = _LazyImport(_load_requests)
+PILImage = _LazyImport(_load_pil_image)
+
+
+def get_column_letter(*args, **kwargs):
+    from openpyxl.utils import get_column_letter as _get_column_letter
+    return _get_column_letter(*args, **kwargs)
+
+
+def column_index_from_string(*args, **kwargs):
+    from openpyxl.utils import column_index_from_string as _column_index_from_string
+    return _column_index_from_string(*args, **kwargs)
+
+
+def XlImage(*args, **kwargs):
+    from openpyxl.drawing.image import Image as _XlImage
+    return _XlImage(*args, **kwargs)
 
 # ==========================================
 # 版本号
