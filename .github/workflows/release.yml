@@ -117,6 +117,7 @@ jobs:
         run: |
           python -m PyInstaller --windowed --onefile --noconfirm --clean --name=SheetPic \
             --icon=icon.ico \
+            --add-data "icon.ico;." \
             --exclude-module tqdm --exclude-module setuptools \
             --exclude-module unittest --exclude-module test \
             --exclude-module distutils --exclude-module lib2to3 \

@@ -79,6 +79,32 @@ def XlImage(*args, **kwargs):
     from openpyxl.drawing.image import Image as _XlImage
     return _XlImage(*args, **kwargs)
 
+
+def _resource_path(relative_path):
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+def _set_window_icon(root):
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"Andre.SheetPic.{APP_VERSION}")
+    except Exception:
+        pass
+
+    icon_path = _resource_path("icon.ico")
+    if not os.path.exists(icon_path):
+        return
+    try:
+        root.iconbitmap(default=icon_path)
+    except tk.TclError:
+        try:
+            root.iconbitmap(icon_path)
+        except tk.TclError:
+            pass
+
 # ==========================================
 # 版本号
 # ==========================================
@@ -2766,6 +2792,7 @@ class SheetPicApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
+    _set_window_icon(root)
     # Try loading tkdnd for drag-and-drop support
     try:
         root.tk.call('package', 'require', 'tkdnd')

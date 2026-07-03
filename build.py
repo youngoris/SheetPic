@@ -161,8 +161,9 @@ def build_windows():
     print("步骤 1: PyInstaller 打包")
     print("=" * 50)
     icon_args = "--icon=icon.ico" if os.path.exists("icon.ico") else ""
+    data_args = '--add-data "icon.ico;."' if os.path.exists("icon.ico") else ""
     run(f'{sys.executable} -m PyInstaller --windowed --onefile --noconfirm --clean '
-        f'--name={APP_NAME} {icon_args} {MAIN_SCRIPT}')
+        f'--name={APP_NAME} {icon_args} {data_args} {MAIN_SCRIPT}')
 
     # 输出结果
     print()
