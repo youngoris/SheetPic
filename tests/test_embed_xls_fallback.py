@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 from io import BytesIO
 
 import openpyxl
@@ -69,6 +70,85 @@ def test_prepare_embed_image_bytes_keeps_max_dim_including_border():
 
     assert out.format == 'JPEG'
     assert max(out.size) <= 500
+
+
+def test_prepare_extract_image_bytes_white_square_defaults_to_border():
+    from sheetpic import EXTRACT_BG_WHITE, EXTRACT_SHAPE_SQUARE, _prepare_extract_image_bytes
+
+    src = PILImage.new('RGBA', (100, 50), (0, 0, 0, 0))
+    red = PILImage.new('RGBA', (50, 30), (200, 0, 0, 255))
+    src.paste(red, (25, 10))
+
+    buf, ext = _prepare_extract_image_bytes(
+        src,
+        bg_mode=EXTRACT_BG_WHITE,
+        shape=EXTRACT_SHAPE_SQUARE,
+    )
+    out = PILImage.open(buf)
+
+    assert ext == '.jpg'
+    assert out.format == 'JPEG'
+    assert out.mode == 'RGB'
+    assert out.size == (110, 110)
+    assert min(out.getpixel((1, 1))) > 245
+    center = out.getpixel((55, 55))
+    assert center[0] > 150
+    assert center[1] < 80
+    assert center[2] < 80
+
+
+def test_prepare_extract_image_bytes_can_preserve_alpha_square():
+    from sheetpic import EXTRACT_SHAPE_SQUARE, _prepare_extract_image_bytes
+
+    src = PILImage.new('RGBA', (100, 50), (0, 0, 0, 0))
+    red = PILImage.new('RGBA', (50, 30), (200, 0, 0, 255))
+    src.paste(red, (25, 10))
+
+    buf, ext = _prepare_extract_image_bytes(src, shape=EXTRACT_SHAPE_SQUARE)
+    out = PILImage.open(buf)
+
+    assert ext == '.png'
+    assert out.format == 'PNG'
+    assert out.mode == 'RGBA'
+    assert out.size == (100, 100)
+    assert out.getpixel((1, 1))[3] == 0
+    assert out.getpixel((50, 50)) == (200, 0, 0, 255)
+
+
+def test_log_appends_when_text_widget_is_disabled():
+    from sheetpic import SheetPicApp
+
+    app = SheetPicApp.__new__(SheetPicApp)
+    app._ui_thread = threading.current_thread()
+
+    class _TextStub:
+        def __init__(self):
+            self.state = 'disabled'
+            self.content = ''
+            self.seen = False
+
+        def cget(self, key):
+            assert key == 'state'
+            return self.state
+
+        def configure(self, **kwargs):
+            if 'state' in kwargs:
+                self.state = kwargs['state']
+
+        def insert(self, _index, text):
+            assert self.state == 'normal'
+            self.content += text
+
+        def see(self, _index):
+            self.seen = True
+
+    app.log_text = _TextStub()
+
+    app.log('finished')
+
+    assert 'finished' in app.log_text.content
+    assert app.log_text.seen is True
+    assert app.log_text.state == 'disabled'
 
 
 def test_write_original_xls_falls_back_to_new_xlsx(tmp_path):
