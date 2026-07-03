@@ -254,6 +254,11 @@ EMBED_IMAGE_JPEG_QUALITY = 85
 EMBED_BG_WHITE = "white"
 EMBED_BG_TRANSPARENT = "transparent"
 URL_LIBRARY_CONFIG_KEY = "url_library"
+URL_LIBRARY_CODE_KEYWORDS = (
+    "条形码", "条码", "商品条码", "sku", "barcode", "bar code",
+    "ean", "upc", "gtin", "货号", "商品编码", "编码", "编号",
+    "code", "id",
+)
 
 
 # ==========================================
@@ -1067,8 +1072,28 @@ class SheetPicApp:
         return pd.read_excel(path, header=header_row)
 
     def _detect_url_library_columns(self, df):
+        code_col_indices, url_col_idx = self._detect_url_library_mapping_columns(df)
+        first_code_idx = code_col_indices[0] if code_col_indices else None
+        return first_code_idx, url_col_idx
+
+    @staticmethod
+    def _is_code_like_column_name(col_name):
+        name = str(col_name).strip().lower()
+        if not name or name.startswith("unnamed"):
+            return False
+        compact = re.sub(r"\s+", "", name)
+        for keyword in URL_LIBRARY_CODE_KEYWORDS:
+            key = keyword.lower().replace(" ", "")
+            if key not in compact:
+                continue
+            if key == "id" and compact not in ("id", "商品id", "产品id") and not compact.endswith("id"):
+                continue
+            return True
+        return False
+
+    def _detect_url_library_mapping_columns(self, df):
         if df is None or df.empty:
-            return None, None
+            return [], None
 
         url_counts = {}
         for i in range(len(df.columns)):
@@ -1076,11 +1101,11 @@ class SheetPicApp:
             if count > 0:
                 url_counts[i] = count
         if not url_counts:
-            return None, None
+            return [], None
         url_col_idx = max(url_counts, key=url_counts.get)
 
-        code_keywords = ("code", "sku", "barcode", "bar code", "id", "条码", "条形码", "货号", "编码", "编号")
-        best_code_idx = None
+        code_col_indices = []
+        fallback_code_idx = None
         best_score = -1
         for i, col_name in enumerate(df.columns):
             if i == url_col_idx:
@@ -1089,21 +1114,24 @@ class SheetPicApp:
             nonblank_count = int(series.dropna().astype(str).str.strip().ne('').sum())
             if nonblank_count == 0:
                 continue
-            name = str(col_name).lower()
             score = nonblank_count
-            if any(k in name for k in code_keywords):
+            if self._is_code_like_column_name(col_name):
                 score += 100000
+                code_col_indices.append(i)
             if self._count_http_values(series) > 0:
                 score -= 100000
             if score > best_score:
                 best_score = score
-                best_code_idx = i
+                fallback_code_idx = i
 
-        return best_code_idx, url_col_idx
+        if not code_col_indices and fallback_code_idx is not None:
+            code_col_indices = [fallback_code_idx]
+
+        return code_col_indices, url_col_idx
 
     def _merge_url_library_from_df(self, df):
-        code_col_idx, url_col_idx = self._detect_url_library_columns(df)
-        if code_col_idx is None or url_col_idx is None:
+        code_col_indices, url_col_idx = self._detect_url_library_mapping_columns(df)
+        if not code_col_indices or url_col_idx is None:
             return None
 
         if not hasattr(self, 'url_library') or self.url_library is None:
@@ -1111,12 +1139,17 @@ class SheetPicApp:
 
         added = 0
         for _, row in df.iterrows():
-            code = _normalize_lookup_code(row.iloc[code_col_idx])
             url = _extract_http_url(row.iloc[url_col_idx])
-            if not code or not url:
+            if not url:
                 continue
-            self.url_library[code] = url
-            added += 1
+            row_codes = set()
+            for code_col_idx in code_col_indices:
+                code = _normalize_lookup_code(row.iloc[code_col_idx])
+                if not code or code in row_codes:
+                    continue
+                row_codes.add(code)
+                self.url_library[code] = url
+                added += 1
         return added
 
     def load_clipboard(self):
