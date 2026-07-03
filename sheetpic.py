@@ -542,9 +542,11 @@ class SheetPicApp:
         self.root.title(f"{self.T['title']}  v{APP_VERSION}")
         self.root.configure(bg=COLORS['bg'])
         if platform.system() == "Darwin":
-            self.root.geometry("520x750")
+            self.root.geometry("620x750")
+            self.root.minsize(620, 750)
         else:
-            self.root.geometry("500x730")
+            self.root.geometry("600x730")
+            self.root.minsize(600, 730)
 
         self.default_dir = os.path.join(os.path.expanduser("~"), "Desktop")
         self.file_path = None
