@@ -79,10 +79,36 @@ def XlImage(*args, **kwargs):
     from openpyxl.drawing.image import Image as _XlImage
     return _XlImage(*args, **kwargs)
 
+
+def _resource_path(relative_path):
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
+
+
+def _set_window_icon(root):
+    if platform.system() != "Windows":
+        return
+    try:
+        import ctypes
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(f"Andre.SheetPic.{APP_VERSION}")
+    except Exception:
+        pass
+
+    icon_path = _resource_path("icon.ico")
+    if not os.path.exists(icon_path):
+        return
+    try:
+        root.iconbitmap(default=icon_path)
+    except tk.TclError:
+        try:
+            root.iconbitmap(icon_path)
+        except tk.TclError:
+            pass
+
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.40"
+APP_VERSION = "1.0.44"
 
 # ==========================================
 # 语言与配置
@@ -109,6 +135,12 @@ LANG_MAP = {
         'opt_auto': "★ [智能合并] 优先下载数据最多的列 (推荐)",
         'type_url': "[链接] {} (含 {} 个URL)",
         'type_img': "[图片] {} (含 {} 张嵌入图)",
+        'lbl_extract_bg': "提取背景",
+        'opt_extract_bg_original': "保留原图",
+        'opt_extract_bg_white': "白色背景",
+        'lbl_extract_shape': "背景形状",
+        'opt_extract_shape_original': "原比例",
+        'opt_extract_shape_square': "正方形",
         'msg_skip': "❌ {}: [空] 未检测到有效图片",
         'done_msg': "耗时: {:.1f}s\n成功: {}\n失败: {}\n跳过: {}\n保存至: {}",
         # Embed
@@ -189,6 +221,12 @@ LANG_MAP = {
         'opt_auto': "★ [Auto Merge] Priority by count",
         'type_url': "[Link] {} ({} URLs)",
         'type_img': "[Image] {} ({} Embedded)",
+        'lbl_extract_bg': "Extract Background",
+        'opt_extract_bg_original': "Original",
+        'opt_extract_bg_white': "White",
+        'lbl_extract_shape': "Background Shape",
+        'opt_extract_shape_original': "Original Ratio",
+        'opt_extract_shape_square': "Square",
         'msg_skip': "❌ {}: [Skip] No valid image found",
         'done_msg': "Time: {:.1f}s\nSuccess: {}\nFailed: {}\nSkipped: {}\nPath: {}",
         # Embed
@@ -261,6 +299,11 @@ EMBED_IMAGE_BORDER_RATIO = 0.05
 EMBED_IMAGE_JPEG_QUALITY = 85
 EMBED_BG_WHITE = "white"
 EMBED_BG_TRANSPARENT = "transparent"
+EXTRACT_IMAGE_BORDER_RATIO = 0.05
+EXTRACT_BG_ORIGINAL = "original"
+EXTRACT_BG_WHITE = "white"
+EXTRACT_SHAPE_ORIGINAL = "original"
+EXTRACT_SHAPE_SQUARE = "square"
 URL_LIBRARY_CONFIG_KEY = "url_library"
 URL_LIBRARY_RECORDS_CONFIG_KEY = "url_library_records"
 URL_LIBRARY_FIELDS_CONFIG_KEY = "url_library_fields"
@@ -458,6 +501,82 @@ def _prepare_embed_image_bytes(pil_img, max_dim=None, bg_mode=EMBED_BG_WHITE):
     return buf
 
 
+def _prepare_extract_image_bytes(
+    pil_img,
+    bg_mode=EXTRACT_BG_ORIGINAL,
+    shape=EXTRACT_SHAPE_ORIGINAL,
+    add_border=None,
+):
+    """Prepare extracted images for optional white canvas, square shape, and border."""
+    bg_mode = bg_mode if bg_mode in (EXTRACT_BG_ORIGINAL, EXTRACT_BG_WHITE) else EXTRACT_BG_ORIGINAL
+    shape = shape if shape in (EXTRACT_SHAPE_ORIGINAL, EXTRACT_SHAPE_SQUARE) else EXTRACT_SHAPE_ORIGINAL
+    if add_border is None:
+        add_border = bg_mode == EXTRACT_BG_WHITE
+    has_transparency = _image_has_transparency(pil_img)
+    preserve_transparency = bg_mode == EXTRACT_BG_ORIGINAL and has_transparency
+
+    if preserve_transparency:
+        content = pil_img.convert('RGBA')
+    else:
+        if has_transparency:
+            rgba = pil_img.convert('RGBA')
+            content = PILImage.new('RGB', rgba.size, 'white')
+            content.paste(rgba, mask=rgba.getchannel('A'))
+        else:
+            content = pil_img.convert('RGB')
+
+    border_w = max(1, math.ceil(content.width * EXTRACT_IMAGE_BORDER_RATIO)) if add_border else 0
+    border_h = max(1, math.ceil(content.height * EXTRACT_IMAGE_BORDER_RATIO)) if add_border else 0
+    canvas_w = content.width + border_w * 2
+    canvas_h = content.height + border_h * 2
+    if shape == EXTRACT_SHAPE_SQUARE:
+        side = max(canvas_w, canvas_h)
+        canvas_w = side
+        canvas_h = side
+
+    if preserve_transparency:
+        canvas = PILImage.new('RGBA', (canvas_w, canvas_h), (255, 255, 255, 0))
+    else:
+        canvas = PILImage.new('RGB', (canvas_w, canvas_h), 'white')
+
+    x = (canvas_w - content.width) // 2
+    y = (canvas_h - content.height) // 2
+    if preserve_transparency and add_border:
+        x0 = max(0, x - border_w)
+        y0 = max(0, y - border_h)
+        x1 = min(canvas_w, x + content.width + border_w)
+        y1 = min(canvas_h, y + content.height + border_h)
+        canvas.paste((255, 255, 255, 255), (x0, y0, x1, y))
+        canvas.paste((255, 255, 255, 255), (x0, y + content.height, x1, y1))
+        canvas.paste((255, 255, 255, 255), (x0, y, x, y + content.height))
+        canvas.paste((255, 255, 255, 255), (x + content.width, y, x1, y + content.height))
+
+    if preserve_transparency:
+        canvas.alpha_composite(content, (x, y))
+    else:
+        canvas.paste(content, (x, y))
+
+    buf = BytesIO()
+    if preserve_transparency:
+        canvas.save(buf, format='PNG', optimize=True)
+        ext = ".png"
+    else:
+        canvas.save(buf, format='JPEG', quality=EMBED_IMAGE_JPEG_QUALITY, optimize=True)
+        ext = ".jpg"
+    buf.seek(0)
+    return buf, ext
+
+
+def _extract_options_require_processing(options):
+    if not options:
+        return False
+    return (
+        options.get('bg_mode') == EXTRACT_BG_WHITE
+        or options.get('shape') == EXTRACT_SHAPE_SQUARE
+        or bool(options.get('add_border'))
+    )
+
+
 def _row_signature(row):
     """Return (n_filled, type_counts dict, values list)."""
     vals = [v for v in row if not _is_blank(v)]
@@ -610,6 +729,8 @@ class SheetPicApp:
 
         # Extract state
         self.sorted_img_cols = []
+        self.var_extract_bg = None
+        self.var_extract_shape = None
 
         # Embed state
         self.embed_url_col_idx = 0
@@ -924,6 +1045,33 @@ class SheetPicApp:
         self.combo_code = ttk.Combobox(parent, state="disabled")
         self.combo_code.pack(fill='x', pady=(2, 0))
 
+        row_options = tk.Frame(parent, bg=COLORS['card'])
+        row_options.pack(fill='x', pady=(10, 0))
+
+        bg_frame = tk.Frame(row_options, bg=COLORS['card'])
+        bg_frame.pack(side='left', padx=(0, 18), anchor='n')
+        tk.Label(bg_frame, text=self.T['lbl_extract_bg'], bg=COLORS['card'],
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
+        self.var_extract_bg = tk.StringVar(value=EXTRACT_BG_ORIGINAL)
+        tk.Radiobutton(bg_frame, text=self.T['opt_extract_bg_original'], variable=self.var_extract_bg,
+                       value=EXTRACT_BG_ORIGINAL, bg=COLORS['card'], fg=COLORS['text_sub'],
+                       font=("Arial", 10), activebackground=COLORS['card']).pack(anchor='w')
+        tk.Radiobutton(bg_frame, text=self.T['opt_extract_bg_white'], variable=self.var_extract_bg,
+                       value=EXTRACT_BG_WHITE, bg=COLORS['card'], fg=COLORS['text_sub'],
+                       font=("Arial", 10), activebackground=COLORS['card']).pack(anchor='w')
+
+        shape_frame = tk.Frame(row_options, bg=COLORS['card'])
+        shape_frame.pack(side='left', padx=(0, 18), anchor='n')
+        tk.Label(shape_frame, text=self.T['lbl_extract_shape'], bg=COLORS['card'],
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
+        self.var_extract_shape = tk.StringVar(value=EXTRACT_SHAPE_ORIGINAL)
+        tk.Radiobutton(shape_frame, text=self.T['opt_extract_shape_original'], variable=self.var_extract_shape,
+                       value=EXTRACT_SHAPE_ORIGINAL, bg=COLORS['card'], fg=COLORS['text_sub'],
+                       font=("Arial", 10), activebackground=COLORS['card']).pack(anchor='w')
+        tk.Radiobutton(shape_frame, text=self.T['opt_extract_shape_square'], variable=self.var_extract_shape,
+                       value=EXTRACT_SHAPE_SQUARE, bg=COLORS['card'], fg=COLORS['text_sub'],
+                       font=("Arial", 10), activebackground=COLORS['card']).pack(anchor='w')
+
     def _build_embed_tab(self, parent):
         """构建「嵌入图片」Tab"""
         tk.Label(parent, text=self.T['sec_embed_settings'], bg=COLORS['card'],
@@ -1133,8 +1281,22 @@ class SheetPicApp:
             return
 
         now = datetime.datetime.now().strftime("[%H:%M:%S]")
-        self.log_text.insert(tk.END, f"{now} {msg}\n")
-        self.log_text.see(tk.END)
+        previous_state = None
+        try:
+            previous_state = self.log_text.cget('state')
+        except (tk.TclError, AttributeError):
+            pass
+        try:
+            if previous_state == 'disabled':
+                self.log_text.configure(state='normal')
+            self.log_text.insert(tk.END, f"{now} {msg}\n")
+            self.log_text.see(tk.END)
+        finally:
+            if previous_state == 'disabled':
+                try:
+                    self.log_text.configure(state='disabled')
+                except (tk.TclError, AttributeError):
+                    pass
 
     def select_file(self):
         p = filedialog.askopenfilename(filetypes=[("Data", "*.xlsx;*.xls;*.csv;*.html"), ("All", "*.*")])
@@ -1702,6 +1864,19 @@ class SheetPicApp:
             return mode
         return EMBED_BG_WHITE
 
+    def _get_extract_image_options(self):
+        bg_var = getattr(self, 'var_extract_bg', None)
+        shape_var = getattr(self, 'var_extract_shape', None)
+        bg_mode = bg_var.get() if bg_var is not None else EXTRACT_BG_ORIGINAL
+        shape = shape_var.get() if shape_var is not None else EXTRACT_SHAPE_ORIGINAL
+        add_border = bg_mode == EXTRACT_BG_WHITE
+        options = {
+            'bg_mode': bg_mode if bg_mode in (EXTRACT_BG_ORIGINAL, EXTRACT_BG_WHITE) else EXTRACT_BG_ORIGINAL,
+            'shape': shape if shape in (EXTRACT_SHAPE_ORIGINAL, EXTRACT_SHAPE_SQUARE) else EXTRACT_SHAPE_ORIGINAL,
+            'add_border': add_border,
+        }
+        return options if _extract_options_require_processing(options) else None
+
     # ==========================================
     # 线程控制
     # ==========================================
@@ -1785,6 +1960,7 @@ class SheetPicApp:
         self.progress['maximum'] = len(self.df)
         tasks = {}
         planned_names = set()
+        extract_options = self._get_extract_image_options()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             for i in range(len(self.df)):
@@ -1839,21 +2015,48 @@ class SheetPicApp:
 
                     if src_type == 'embed':
                         try:
-                            ext = ".png" if src_data.format == "png" else ".jpg"
-                            path = os.path.join(out_dir, final_name + ext)
-                            with open(path, "wb") as f:
-                                f.write(src_data._data())
-                            success += 1
-                        except Exception:
+                            raw_data = src_data._data()
+                            if _extract_options_require_processing(extract_options):
+                                is_ok, msg = self._save_processed_extract_image(
+                                    raw_data,
+                                    final_name,
+                                    out_dir,
+                                    extract_options
+                                )
+                                if is_ok:
+                                    success += 1
+                                else:
+                                    fail += 1
+                                    self.root.after(0, lambda m=msg: self.log(m))
+                            else:
+                                ext = ".png" if src_data.format == "png" else ".jpg"
+                                path = os.path.join(out_dir, final_name + ext)
+                                with open(path, "wb") as f:
+                                    f.write(raw_data)
+                                success += 1
+                        except Exception as e:
                             fail += 1
+                            self.root.after(0, lambda n=final_name, err=e: self.log(
+                                self.T['msg_err'].format(n, f"{type(err).__name__}: {str(err)[:60]}")
+                            ))
                     else:
                         task = {'url': src_data, 'filename_base': final_name, 'out_dir': out_dir}
-                        future = executor.submit(
-                            self.download_url,
-                            task['url'],
-                            task['filename_base'],
-                            task['out_dir']
-                        )
+                        if extract_options:
+                            task['extract_options'] = extract_options
+                            future = executor.submit(
+                                self.download_url,
+                                task['url'],
+                                task['filename_base'],
+                                task['out_dir'],
+                                task['extract_options']
+                            )
+                        else:
+                            future = executor.submit(
+                                self.download_url,
+                                task['url'],
+                                task['filename_base'],
+                                task['out_dir']
+                            )
                         tasks[future] = task
 
                 self.root.after(0, self.update_progress_ext, i+1, len(self.df), success, fail, skipped, "Process")
@@ -1919,12 +2122,22 @@ class SheetPicApp:
                     )
                     continue
                 planned_names.add(filename_base)
-                future = executor.submit(
-                    self.download_url,
-                    task['url'],
-                    filename_base,
-                    task['out_dir']
-                )
+                extract_options = task.get('extract_options')
+                if extract_options:
+                    future = executor.submit(
+                        self.download_url,
+                        task['url'],
+                        filename_base,
+                        task['out_dir'],
+                        extract_options
+                    )
+                else:
+                    future = executor.submit(
+                        self.download_url,
+                        task['url'],
+                        filename_base,
+                        task['out_dir']
+                    )
                 futures[future] = task
 
             completed = skipped_before_submit
@@ -1953,21 +2166,69 @@ class SheetPicApp:
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
+    def _remove_file_quietly(self, path):
+        if not path:
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+    def _write_extract_file_atomic(self, path, data):
+        temp_path = path + ".part"
+        self._remove_file_quietly(temp_path)
+        try:
+            with open(temp_path, 'wb') as f:
+                f.write(data)
+            os.replace(temp_path, path)
+            return True
+        except OSError:
+            self._remove_file_quietly(temp_path)
+            return False
+
+    def _save_processed_extract_image(self, image_data, filename_base, out_dir, options):
+        try:
+            pil_img = PILImage.open(BytesIO(image_data))
+            pil_img.load()
+            buf, ext = _prepare_extract_image_bytes(
+                pil_img,
+                bg_mode=options.get('bg_mode', EXTRACT_BG_ORIGINAL),
+                shape=options.get('shape', EXTRACT_SHAPE_ORIGINAL),
+                add_border=bool(options.get('add_border')),
+            )
+        except Exception as e:
+            return False, self.T['msg_bad_image'].format(filename_base, str(e)[:60])
+
+        path = os.path.join(out_dir, filename_base + ext)
+        if not self._write_extract_file_atomic(path, buf.getvalue()):
+            return False, self.T['msg_err'].format(filename_base, "Could not write file")
+        return True, "OK"
+
     def _extract_output_exists(self, out_dir, filename_base):
         try:
             for name in os.listdir(out_dir):
                 stem, ext = os.path.splitext(name)
                 if stem == filename_base and ext:
+                    path = os.path.join(out_dir, name)
+                    try:
+                        if os.path.isfile(path) and os.path.getsize(path) == 0:
+                            self._remove_file_quietly(path)
+                            continue
+                    except OSError:
+                        pass
                     return True
         except OSError:
             return False
         return False
 
-    def download_url(self, url, filename_base, out_dir):
+    def download_url(self, url, filename_base, out_dir, extract_options=None):
         if not self.is_running:
             return False, "Stopped"
+        process_image = _extract_options_require_processing(extract_options)
         for attempt in range(EXTRACT_TIMEOUT_RETRIES + 1):
             path = None
+            temp_path = None
             try:
                 headers = {'User-Agent': 'Mozilla/5.0'}
                 r = requests.get(url, headers=headers, timeout=10, stream=True)
@@ -1983,35 +2244,63 @@ class SheetPicApp:
                         ext = ".jpg"
                     path = os.path.join(out_dir, filename_base + ext)
                     written = 0
-                    with open(path, 'wb') as f:
+                    if process_image:
+                        chunks = []
                         for chunk in r.iter_content(8192):
                             if not self.is_running:
                                 return False, "Stopped"
                             written += len(chunk)
                             if written > self.MAX_FILE_SIZE:
-                                f.close()
-                                os.remove(path)
                                 return False, self.T['msg_too_large'].format(filename_base, written // 1024 // 1024)
-                            f.write(chunk)
-                    return True, "OK"
+                            chunks.append(chunk)
+                        if written == 0:
+                            if attempt < EXTRACT_TIMEOUT_RETRIES:
+                                continue
+                            return False, self.T['msg_err'].format(filename_base, "Empty download")
+                        return self._save_processed_extract_image(
+                            b''.join(chunks),
+                            filename_base,
+                            out_dir,
+                            extract_options
+                        )
+                    else:
+                        temp_path = path + ".part"
+                        self._remove_file_quietly(temp_path)
+                        with open(temp_path, 'wb') as f:
+                            for chunk in r.iter_content(8192):
+                                if not self.is_running:
+                                    self._remove_file_quietly(temp_path)
+                                    return False, "Stopped"
+                                written += len(chunk)
+                                if written > self.MAX_FILE_SIZE:
+                                    f.close()
+                                    self._remove_file_quietly(temp_path)
+                                    return False, self.T['msg_too_large'].format(filename_base, written // 1024 // 1024)
+                                f.write(chunk)
+                        if written == 0:
+                            self._remove_file_quietly(temp_path)
+                            if attempt < EXTRACT_TIMEOUT_RETRIES:
+                                continue
+                            return False, self.T['msg_err'].format(filename_base, "Empty download")
+                        os.replace(temp_path, path)
+                        return True, "OK"
                 elif r.status_code == 404:
                     return False, self.T['msg_404'].format(filename_base)
                 else:
                     return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code} ({url[:60]})")
             except requests.exceptions.Timeout:
-                if path and os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+                self._remove_file_quietly(temp_path)
                 if attempt < EXTRACT_TIMEOUT_RETRIES:
                     continue
                 return False, self.T['msg_timeout'].format(filename_base)
             except requests.exceptions.SSLError as e:
+                self._remove_file_quietly(temp_path)
                 return False, self.T['msg_ssl_err'].format(filename_base, str(e)[:80])
             except requests.exceptions.ConnectionError as e:
+                self._remove_file_quietly(temp_path)
                 return False, self.T['msg_conn_err'].format(filename_base, str(e)[:80])
             except Exception as e:
+                self._remove_file_quietly(temp_path)
                 if attempt == 0:
                     continue
                 return False, self.T['msg_err'].format(filename_base, f"{type(e).__name__}: {str(e)[:60]}")
@@ -2044,8 +2333,8 @@ class SheetPicApp:
             msg = self.T['done_msg'].format(duration, success, fail, skipped, path)
             self.log("-" * 20)
             self.log(msg.replace("\n", " "))
-            if success > 0:
-                messagebox.showinfo("Done", msg)
+            messagebox.showinfo("Done", msg)
+            if success > 0 or self._dir_has_files(path):
                 self._open_folder(path)
         else:
             self.lbl_status.config(text="Stopped")
@@ -2415,6 +2704,12 @@ class SheetPicApp:
     # 通用工具
     # ==========================================
 
+    def _dir_has_files(self, path):
+        try:
+            return any(os.path.isfile(os.path.join(path, name)) for name in os.listdir(path))
+        except OSError:
+            return False
+
     def _open_folder(self, path):
         try:
             if platform.system() == "Darwin":
@@ -2497,6 +2792,7 @@ class SheetPicApp:
 
 if __name__ == "__main__":
     root = tk.Tk()
+    _set_window_icon(root)
     # Try loading tkdnd for drag-and-drop support
     try:
         root.tk.call('package', 'require', 'tkdnd')

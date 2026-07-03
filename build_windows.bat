@@ -43,9 +43,13 @@ echo 步骤 1: PyInstaller 打包
 echo ========================================
 
 set ICON_ARG=
-if exist %ICON% set ICON_ARG=--icon=%ICON%
+set DATA_ARG=
+if exist "%ICON%" (
+    set "ICON_ARG=--icon=%ICON%"
+    set "DATA_ARG=--add-data=%ICON%;."
+)
 
-python -m PyInstaller --windowed --onefile --noconfirm --clean --name=%APP_NAME% %ICON_ARG% %MAIN_SCRIPT%
+python -m PyInstaller --windowed --onefile --noconfirm --clean --name=%APP_NAME% %ICON_ARG% %DATA_ARG% %MAIN_SCRIPT%
 
 if errorlevel 1 (
     echo.
