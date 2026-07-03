@@ -6,16 +6,11 @@ SheetPic - 批量图片提取 & 嵌入 工具
 """
 import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
+import math
 import os
 import threading
 import platform
-import requests
 import concurrent.futures
-import pandas as pd
-import openpyxl
-from openpyxl.utils import get_column_letter, column_index_from_string
-from openpyxl.drawing.image import Image as XlImage
-from PIL import Image as PILImage
 from io import BytesIO
 import webbrowser
 import datetime
@@ -27,10 +22,67 @@ import time
 import subprocess
 import urllib.request
 
+
+class _LazyImport:
+    """Import heavy optional modules only when a feature actually needs them."""
+
+    def __init__(self, loader):
+        self._loader = loader
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = self._loader()
+        return self._module
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+
+def _load_pandas():
+    import pandas as _pd
+    return _pd
+
+
+def _load_openpyxl():
+    import openpyxl as _openpyxl
+    return _openpyxl
+
+
+def _load_requests():
+    import requests as _requests
+    return _requests
+
+
+def _load_pil_image():
+    from PIL import Image as _PILImage
+    return _PILImage
+
+
+pd = _LazyImport(_load_pandas)
+openpyxl = _LazyImport(_load_openpyxl)
+requests = _LazyImport(_load_requests)
+PILImage = _LazyImport(_load_pil_image)
+
+
+def get_column_letter(*args, **kwargs):
+    from openpyxl.utils import get_column_letter as _get_column_letter
+    return _get_column_letter(*args, **kwargs)
+
+
+def column_index_from_string(*args, **kwargs):
+    from openpyxl.utils import column_index_from_string as _column_index_from_string
+    return _column_index_from_string(*args, **kwargs)
+
+
+def XlImage(*args, **kwargs):
+    from openpyxl.drawing.image import Image as _XlImage
+    return _XlImage(*args, **kwargs)
+
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.30"
+APP_VERSION = "1.0.33"
 
 # ==========================================
 # 语言与配置
@@ -63,10 +115,24 @@ LANG_MAP = {
         'lbl_url_col': "图片URL列 (含链接的列)",
         'lbl_sku_col': "SKU/ID列 (用于排序)",
         'lbl_img_size': "最大边长 (px)",
+        'lbl_url_library': "URL库: {} 条",
+        'btn_import_url_lib': "导入URL库",
+        'btn_clear_url_lib': "清空URL库",
+        'lbl_img_bg': "图片背景",
+        'opt_bg_white': "白底 JPG",
+        'opt_bg_transparent': "保留透明 PNG",
         'chk_original': "插入原图 (不缩放)",
         'chk_del_url': "嵌入后删除原URL列",
         'chk_write_original': "写入原文件 (保留格式)",
         'msg_no_url': "❌ 未检测到包含URL的列",
+        'opt_url_library': "[URL库] 按SKU/ID匹配 ({} 条)",
+        'msg_url_lib_imported': "✅ URL库已导入: 新增/更新 {} 条，当前共 {} 条 ({})",
+        'msg_url_lib_empty': "❌ URL库文件为空或未找到有效映射",
+        'msg_url_lib_no_cols': "❌ URL库需要至少一列条码/SKU和一列图片URL",
+        'msg_url_lib_cleared': "URL库已清空",
+        'msg_url_lib_clear_confirm': "确定清空已保存的URL库吗？",
+        'msg_use_url_library': "未检测到URL列，将使用URL库按SKU/ID匹配",
+        'msg_url_lib_matches': "URL库匹配: {} / {}",
         'msg_embed_done': "耗时: {:.1f}s\n嵌入成功: {}\n下载失败: {}\n输出文件: {}",
         'msg_dl_fail': "[下载失败]",
         'msg_dl_skip': "[无URL]",
@@ -125,10 +191,24 @@ LANG_MAP = {
         'lbl_url_col': "Image URL Column",
         'lbl_sku_col': "SKU/ID Column (for ordering)",
         'lbl_img_size': "Max Dimension (px)",
+        'lbl_url_library': "URL Library: {} items",
+        'btn_import_url_lib': "Import URL Library",
+        'btn_clear_url_lib': "Clear URL Library",
+        'lbl_img_bg': "Image Background",
+        'opt_bg_white': "White JPG",
+        'opt_bg_transparent': "Preserve PNG alpha",
         'chk_original': "Original Size (no resize)",
         'chk_del_url': "Delete URL column after embedding",
         'chk_write_original': "Write to original file (preserve format)",
         'msg_no_url': "❌ No URL column detected",
+        'opt_url_library': "[URL Library] Match by SKU/ID ({} items)",
+        'msg_url_lib_imported': "✅ URL library imported: {} added/updated, {} total ({})",
+        'msg_url_lib_empty': "❌ URL library file is empty or has no valid mappings",
+        'msg_url_lib_no_cols': "❌ URL library needs one SKU/ID column and one image URL column",
+        'msg_url_lib_cleared': "URL library cleared",
+        'msg_url_lib_clear_confirm': "Clear the saved URL library?",
+        'msg_use_url_library': "No URL column detected; using URL library by SKU/ID",
+        'msg_url_lib_matches': "URL library matches: {} / {}",
         'msg_embed_done': "Time: {:.1f}s\nEmbedded: {}\nFailed: {}\nOutput: {}",
         'msg_dl_fail': "[Download Failed]",
         'msg_dl_skip': "[No URL]",
@@ -169,6 +249,11 @@ COLORS = {
 }
 
 GITHUB_URL = "https://github.com/youngoris/SheetPic"
+EMBED_IMAGE_BORDER_RATIO = 0.05
+EMBED_IMAGE_JPEG_QUALITY = 85
+EMBED_BG_WHITE = "white"
+EMBED_BG_TRANSPARENT = "transparent"
+URL_LIBRARY_CONFIG_KEY = "url_library"
 
 
 # ==========================================
@@ -211,6 +296,36 @@ def _looks_like_url(s):
     return s.startswith('http://') or s.startswith('https://') or s.startswith('//')
 
 
+def _normalize_lookup_code(value):
+    if _is_blank(value):
+        return ''
+    if isinstance(value, float):
+        if math.isnan(value):
+            return ''
+        if value.is_integer():
+            return str(int(value))
+    text = str(value).strip()
+    if text.lower() in ('nan', 'none'):
+        return ''
+    if re.fullmatch(r'\d+\.0+', text):
+        return text.split('.')[0]
+    return text
+
+
+def _extract_http_url(value):
+    if _is_blank(value):
+        return None
+    text = str(value).strip()
+    if text.lower() in ('nan', 'none'):
+        return None
+    if text.startswith('//'):
+        return 'https:' + text
+    match = re.search(r'https?://[^\s;]+', text, flags=re.IGNORECASE)
+    if match:
+        return match.group(0)
+    return None
+
+
 def _cell_type(v):
     """Classify a cell into one of: blank/str/num/date/url."""
     if _is_blank(v):
@@ -237,6 +352,60 @@ def _cell_type(v):
             pass
         return 'str'
     return 'str'
+
+
+def _image_has_transparency(img):
+    if img.mode in ('RGBA', 'LA'):
+        return True
+    return img.mode == 'P' and 'transparency' in img.info
+
+
+def _prepare_embed_image_bytes(pil_img, max_dim=None, bg_mode=EMBED_BG_WHITE):
+    """Prepare image bytes with a 5% border; preserve alpha only when source has it."""
+    bg_mode = bg_mode if bg_mode in (EMBED_BG_WHITE, EMBED_BG_TRANSPARENT) else EMBED_BG_WHITE
+    has_transparency = _image_has_transparency(pil_img)
+    preserve_transparency = bg_mode == EMBED_BG_TRANSPARENT and has_transparency
+    if max_dim and max_dim > 0:
+        content_max_dim = max(1, int(max_dim / (1 + EMBED_IMAGE_BORDER_RATIO * 2)))
+        pil_img.thumbnail((content_max_dim, content_max_dim), PILImage.LANCZOS)
+
+    if preserve_transparency:
+        content = pil_img.convert('RGBA')
+    else:
+        if has_transparency:
+            rgba = pil_img.convert('RGBA')
+            content = PILImage.new('RGB', rgba.size, 'white')
+            content.paste(rgba, mask=rgba.getchannel('A'))
+        else:
+            content = pil_img.convert('RGB')
+
+    border_w = max(1, math.ceil(content.width * EMBED_IMAGE_BORDER_RATIO))
+    border_h = max(1, math.ceil(content.height * EMBED_IMAGE_BORDER_RATIO))
+    if preserve_transparency:
+        canvas = PILImage.new(
+            'RGBA',
+            (content.width + border_w * 2, content.height + border_h * 2),
+            (255, 255, 255, 0)
+        )
+        canvas.alpha_composite(content, (border_w, border_h))
+    else:
+        canvas = PILImage.new(
+            'RGB',
+            (content.width + border_w * 2, content.height + border_h * 2),
+            'white'
+        )
+        canvas.paste(content, (border_w, border_h))
+
+    if max_dim and max_dim > 0 and max(canvas.size) > max_dim:
+        canvas.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
+
+    buf = BytesIO()
+    if preserve_transparency:
+        canvas.save(buf, format='PNG', optimize=True)
+    else:
+        canvas.save(buf, format='JPEG', quality=EMBED_IMAGE_JPEG_QUALITY, optimize=True)
+    buf.seek(0)
+    return buf
 
 
 def _row_signature(row):
@@ -394,6 +563,10 @@ class SheetPicApp:
         self.embed_url_col_idx = 0
         self.embed_sku_col_idx = 0
         self.embed_url_cols = []
+        self.embed_use_url_library = False
+        self.url_library = self._load_url_library()
+        self._url_library_combo_value = None
+        self.var_img_bg = None
 
         self.setup_style()
         self.setup_ui()
@@ -453,11 +626,31 @@ class SheetPicApp:
         except (FileNotFoundError, json.JSONDecodeError, OSError):
             return {}
 
+    def _write_config(self, cfg):
+        with open(self.CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(cfg, f, ensure_ascii=False)
+
     def _save_config(self, lang):
         cfg = self._load_config()
         cfg['lang'] = lang
-        with open(self.CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(cfg, f, ensure_ascii=False)
+        self._write_config(cfg)
+
+    def _load_url_library(self):
+        raw = self._load_config().get(URL_LIBRARY_CONFIG_KEY, {})
+        if not isinstance(raw, dict):
+            return {}
+        library = {}
+        for code, url in raw.items():
+            key = _normalize_lookup_code(code)
+            clean_url = _extract_http_url(url)
+            if key and clean_url:
+                library[key] = clean_url
+        return library
+
+    def _save_url_library(self):
+        cfg = self._load_config()
+        cfg[URL_LIBRARY_CONFIG_KEY] = getattr(self, 'url_library', {})
+        self._write_config(cfg)
 
     def switch_lang(self, lang):
         if lang == self.lang:
@@ -645,6 +838,22 @@ class SheetPicApp:
         self.combo_sku = ttk.Combobox(row_sku, state="disabled")
         self.combo_sku.pack(fill='x', pady=(2, 0))
 
+        # URL库
+        row_lib = tk.Frame(parent, bg=COLORS['card'])
+        row_lib.pack(fill='x', pady=(0, 8))
+        self.lbl_url_library = tk.Label(
+            row_lib,
+            text=self.T['lbl_url_library'].format(len(getattr(self, 'url_library', {}))),
+            bg=COLORS['card'],
+            fg=COLORS['text_sub'],
+            font=("Arial", 10)
+        )
+        self.lbl_url_library.pack(side='left')
+        ttk.Button(row_lib, text=self.T['btn_import_url_lib'],
+                   command=self.import_url_library).pack(side='right', padx=(5, 0))
+        ttk.Button(row_lib, text=self.T['btn_clear_url_lib'],
+                   command=self.clear_url_library).pack(side='right')
+
         # 最大边长 + 3 个选项 同行排列（4 列：[输入框] [chk] [chk] [chk]）
         row_size = tk.Frame(parent, bg=COLORS['card'])
         row_size.pack(fill='x')
@@ -677,6 +886,19 @@ class SheetPicApp:
         self.var_write_original = tk.BooleanVar(value=False)
         chk_wo = _mk_chk(self.T['chk_write_original'], self.var_write_original)
         chk_wo.grid(row=0, column=2, sticky='w')
+
+        # 第四列：背景模式
+        bg_frame = tk.Frame(size_frame, bg=COLORS['card'])
+        bg_frame.grid(row=0, column=3, rowspan=2, sticky='w', padx=(16, 0))
+        tk.Label(bg_frame, text=self.T['lbl_img_bg'], bg=COLORS['card'],
+                 fg=COLORS['text_sub'], font=("Arial", 10)).pack(anchor='w')
+        self.var_img_bg = tk.StringVar(value=EMBED_BG_WHITE)
+        tk.Radiobutton(bg_frame, text=self.T['opt_bg_white'], variable=self.var_img_bg,
+                       value=EMBED_BG_WHITE, bg=COLORS['card'], fg=COLORS['text_sub'],
+                       font=("Arial", 10), activebackground=COLORS['card']).pack(side='left')
+        tk.Radiobutton(bg_frame, text=self.T['opt_bg_transparent'], variable=self.var_img_bg,
+                       value=EMBED_BG_TRANSPARENT, bg=COLORS['card'], fg=COLORS['text_sub'],
+                       font=("Arial", 10), activebackground=COLORS['card']).pack(side='left')
 
     # ==========================================
     # 通用方法
@@ -786,6 +1008,114 @@ class SheetPicApp:
         if d:
             self.entry_dest.delete(0, tk.END)
             self.entry_dest.insert(0, d)
+
+    def import_url_library(self):
+        path = filedialog.askopenfilename(
+            filetypes=[("Data", "*.xlsx;*.xls;*.csv;*.html"), ("All", "*.*")]
+        )
+        if not path:
+            return
+        try:
+            df = self._read_table_for_url_library(path)
+            added = self._merge_url_library_from_df(df)
+            if added is None:
+                self.log(self.T['msg_url_lib_no_cols'])
+                return
+            if added == 0:
+                self.log(self.T['msg_url_lib_empty'])
+                return
+            self._save_url_library()
+            self._refresh_url_library_status()
+            self.log(self.T['msg_url_lib_imported'].format(
+                added, len(self.url_library), os.path.basename(path)
+            ))
+            if self.df is not None and not self.df.empty:
+                self.process_df()
+        except Exception as e:
+            self.log(f"❌ Error: {e}")
+
+    def clear_url_library(self):
+        if not getattr(self, 'url_library', {}):
+            return
+        if not messagebox.askyesno(self.T['title'], self.T['msg_url_lib_clear_confirm']):
+            return
+        self.url_library = {}
+        self._save_url_library()
+        self._refresh_url_library_status()
+        self.log(self.T['msg_url_lib_cleared'])
+        if self.df is not None and not self.df.empty:
+            self.process_df()
+
+    def _refresh_url_library_status(self):
+        if hasattr(self, 'lbl_url_library'):
+            self.lbl_url_library.config(
+                text=self.T['lbl_url_library'].format(len(getattr(self, 'url_library', {})))
+            )
+
+    def _read_table_for_url_library(self, path):
+        ext = os.path.splitext(path)[1].lower()
+        if ext == '.csv':
+            try:
+                return pd.read_csv(path, encoding='utf-8-sig', on_bad_lines='skip')
+            except Exception:
+                return pd.read_csv(path, encoding='gbk', on_bad_lines='skip')
+        if ext == '.html':
+            return pd.read_html(path)[0]
+        header_row = self.find_robust_header(path)
+        return pd.read_excel(path, header=header_row)
+
+    def _detect_url_library_columns(self, df):
+        if df is None or df.empty:
+            return None, None
+
+        url_counts = {}
+        for i in range(len(df.columns)):
+            count = self._count_http_values(df.iloc[:, i])
+            if count > 0:
+                url_counts[i] = count
+        if not url_counts:
+            return None, None
+        url_col_idx = max(url_counts, key=url_counts.get)
+
+        code_keywords = ("code", "sku", "barcode", "bar code", "id", "条码", "条形码", "货号", "编码", "编号")
+        best_code_idx = None
+        best_score = -1
+        for i, col_name in enumerate(df.columns):
+            if i == url_col_idx:
+                continue
+            series = df.iloc[:, i]
+            nonblank_count = int(series.dropna().astype(str).str.strip().ne('').sum())
+            if nonblank_count == 0:
+                continue
+            name = str(col_name).lower()
+            score = nonblank_count
+            if any(k in name for k in code_keywords):
+                score += 100000
+            if self._count_http_values(series) > 0:
+                score -= 100000
+            if score > best_score:
+                best_score = score
+                best_code_idx = i
+
+        return best_code_idx, url_col_idx
+
+    def _merge_url_library_from_df(self, df):
+        code_col_idx, url_col_idx = self._detect_url_library_columns(df)
+        if code_col_idx is None or url_col_idx is None:
+            return None
+
+        if not hasattr(self, 'url_library') or self.url_library is None:
+            self.url_library = {}
+
+        added = 0
+        for _, row in df.iterrows():
+            code = _normalize_lookup_code(row.iloc[code_col_idx])
+            url = _extract_http_url(row.iloc[url_col_idx])
+            if not code or not url:
+                continue
+            self.url_library[code] = url
+            added += 1
+        return added
 
     def load_clipboard(self):
         self.log(">>> Reading clipboard...")
@@ -979,10 +1309,23 @@ class SheetPicApp:
         self.combo_code.config(state='readonly')
 
         # Embed combos
+        library_count = len(getattr(self, 'url_library', {}))
+        self._url_library_combo_value = None
+        if library_count:
+            self._url_library_combo_value = self.T['opt_url_library'].format(library_count)
+            url_opts.append(self._url_library_combo_value)
+
         self.combo_url['values'] = url_opts
+        self.embed_use_url_library = False
         if url_opts:
             self.combo_url.current(0)
-            self.embed_url_col_idx = self.embed_url_cols[0]['idx']
+            if self.embed_url_cols:
+                self.embed_url_col_idx = self.embed_url_cols[0]['idx']
+            else:
+                self.embed_url_col_idx = None
+                self.embed_use_url_library = True
+                if self.mode == 'embed':
+                    self.log(self.T['msg_use_url_library'])
         else:
             if self.mode == 'embed':
                 self.log(self.T['msg_no_url'])
@@ -994,7 +1337,7 @@ class SheetPicApp:
             self.combo_sku.set(best_sku)
         elif sku_opts:
             self.combo_sku.current(0)
-        self.combo_url.config(state='readonly')
+        self.combo_url.config(state='readonly' if url_opts else 'disabled')
         self.combo_sku.config(state='readonly')
         self.combo_url.bind('<<ComboboxSelected>>', self._on_url_selected)
         self.combo_sku.bind('<<ComboboxSelected>>', self._on_sku_selected)
@@ -1002,6 +1345,8 @@ class SheetPicApp:
         # Enable start button
         if img_opts or url_opts:
             self.btn_run.config(state='normal')
+        else:
+            self.btn_run.config(state='disabled')
 
     def _get_col_index(self, s):
         match = re.search(r'\(([A-Z]+)\)', s)
@@ -1010,7 +1355,12 @@ class SheetPicApp:
         return 0
 
     def _on_url_selected(self, event):
-        self.embed_url_col_idx = self._get_col_index(self.combo_url.get())
+        value = self.combo_url.get()
+        self.embed_use_url_library = bool(
+            getattr(self, '_url_library_combo_value', None)
+            and value == self._url_library_combo_value
+        )
+        self.embed_url_col_idx = None if self.embed_use_url_library else self._get_col_index(value)
 
     def _on_sku_selected(self, event):
         self.embed_sku_col_idx = self._get_col_index(self.combo_sku.get())
@@ -1020,6 +1370,15 @@ class SheetPicApp:
             self.entry_max_dim.config(state='disabled')
         else:
             self.entry_max_dim.config(state='normal')
+
+    def _get_embed_bg_mode(self):
+        var = getattr(self, 'var_img_bg', None)
+        if var is None:
+            return EMBED_BG_WHITE
+        mode = var.get()
+        if mode in (EMBED_BG_WHITE, EMBED_BG_TRANSPARENT):
+            return mode
+        return EMBED_BG_WHITE
 
     # ==========================================
     # 线程控制
@@ -1258,7 +1617,7 @@ class SheetPicApp:
             self.root.after(0, lambda: self.log(f"URL clean: {original[:60]}... -> {url[:60]}..."))
         return url
 
-    def download_to_bytesio(self, url, max_dim=None):
+    def download_to_bytesio(self, url, max_dim=None, bg_mode=EMBED_BG_WHITE):
         if not self.is_running:
             return False, "Stopped"
         for attempt in range(2):
@@ -1275,17 +1634,7 @@ class SheetPicApp:
                         pil_img = PILImage.open(BytesIO(r.content))
                     except Exception as e:
                         return False, self.T['msg_bad_image'].format(url[:50], str(e)[:60])
-                    if max_dim:
-                        pil_img.thumbnail((max_dim, max_dim), PILImage.LANCZOS)
-                    buf = BytesIO()
-                    if pil_img.mode in ('RGBA', 'LA', 'P'):
-                        pil_img = pil_img.convert('RGBA')
-                        pil_img.save(buf, format='PNG')
-                    else:
-                        pil_img = pil_img.convert('RGB')
-                        pil_img.save(buf, format='JPEG', quality=85)
-                    buf.seek(0)
-                    return True, buf
+                    return True, _prepare_embed_image_bytes(pil_img, max_dim, bg_mode)
                 elif r.status_code == 404:
                     return False, self.T['msg_404'].format(url[:50])
                 else:
@@ -1319,22 +1668,28 @@ class SheetPicApp:
                 max_dim = int(self.entry_max_dim.get())
             except ValueError:
                 max_dim = 500
+        bg_mode = self._get_embed_bg_mode()
 
-        url_col_idx = self.embed_url_col_idx
         sku_col_idx = self.embed_sku_col_idx
+        use_url_library = bool(getattr(self, 'embed_use_url_library', False))
+        url_col_idx = self.embed_url_col_idx
+        source_col_idx = sku_col_idx if use_url_library else url_col_idx
+        if source_col_idx is None:
+            self.root.after(0, self.embed_error_finish, self.T['msg_no_url'])
+            return
         write_original = self.var_write_original.get()
         self._embed_setup_used_original = write_original
 
-        del_url = self.var_del_url.get()
+        del_url = self.var_del_url.get() and not use_url_library
 
         header_row_excel = self.header_row + 1
         try:
             if write_original:
                 out_file, ws, wb_out, img_header_col, header_row_excel = \
-                    self._embed_setup_original(fname, url_col_idx, del_url)
+                    self._embed_setup_original(fname, source_col_idx, del_url)
             else:
                 out_file, ws, wb_out, img_header_col, header_row_excel = \
-                    self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
+                    self._embed_setup_new(fname, source_col_idx, del_url, header_row_excel)
         except Exception as e:
             self.root.after(0, self.embed_error_finish, f"{type(e).__name__}: {e}")
             return
@@ -1346,26 +1701,29 @@ class SheetPicApp:
 
         # Collect URLs
         rows_data = []
+        library_matches = 0
         for i in range(total):
-            url_raw = str(self.df.iloc[i, url_col_idx]).strip()
-            url = url_raw
-            if url and url.lower() != 'nan' and 'http' in url.lower():
-                if not url.startswith("http"):
-                    m = re.search(r'(https?://[^\s;]+)', url)
-                    if m:
-                        url = m.group(1)
-                    else:
-                        self.root.after(0, lambda u=url_raw: self.log(
-                            self.T['msg_invalid_url'].format(f"Row {i+1}", u[:60])))
-                        url = None
+            if use_url_library:
+                code = _normalize_lookup_code(self.df.iloc[i, sku_col_idx])
+                url = getattr(self, 'url_library', {}).get(code)
                 if url:
+                    library_matches += 1
                     url = self.clean_url(url)
             else:
-                if url_raw and url_raw.lower() != 'nan':
+                url_raw_value = self.df.iloc[i, url_col_idx]
+                url_raw = str(url_raw_value).strip()
+                url = _extract_http_url(url_raw_value)
+                if url:
+                    url = self.clean_url(url)
+                elif url_raw and url_raw.lower() != 'nan':
                     self.root.after(0, lambda u=url_raw: self.log(
                         self.T['msg_invalid_url'].format(f"Row {i+1}", u[:60])))
-                url = None
             rows_data.append(url)
+
+        if use_url_library:
+            self.root.after(0, lambda: self.log(
+                self.T['msg_url_lib_matches'].format(library_matches, total)
+            ))
 
         success = 0
         fail = 0
@@ -1378,7 +1736,7 @@ class SheetPicApp:
                 if not self.is_running:
                     break
                 if url:
-                    futures[executor.submit(self.download_to_bytesio, url, max_dim)] = i
+                    futures[executor.submit(self.download_to_bytesio, url, max_dim, bg_mode)] = i
                 else:
                     futures[executor.submit(lambda: (False, "No URL"))] = i
 
@@ -1409,7 +1767,7 @@ class SheetPicApp:
                 # Write cell values for new-workbook mode
                 out_col = 1
                 for j in range(len(orig_cols)):
-                    if del_url and j == url_col_idx:
+                    if del_url and j == source_col_idx:
                         out_col += 1
                     else:
                         cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
@@ -1417,7 +1775,7 @@ class SheetPicApp:
                             cell_val = ""
                         ws.cell(row=excel_row, column=out_col, value=cell_val)
                         out_col += 1
-                        if not del_url and j == url_col_idx:
+                        if not del_url and j == source_col_idx:
                             out_col += 1
 
             img_col_letter = get_column_letter(img_header_col)
@@ -1450,7 +1808,7 @@ class SheetPicApp:
                     if not write_original:
                         out_col = 1
                         for j in range(len(orig_cols)):
-                            if del_url and j == url_col_idx:
+                            if del_url and j == source_col_idx:
                                 out_col += 1
                             else:
                                 cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
@@ -1458,7 +1816,7 @@ class SheetPicApp:
                                     cell_val = ""
                                 ws.cell(row=excel_row, column=out_col, value=cell_val)
                                 out_col += 1
-                                if not del_url and j == url_col_idx:
+                                if not del_url and j == source_col_idx:
                                     out_col += 1
                     ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_skip'])
 
@@ -1482,7 +1840,7 @@ class SheetPicApp:
         duration = time.time() - t_start
         self.root.after(0, lambda: self.embed_finish(success, fail, out_file, duration))
 
-    def _embed_setup_new(self, fname, url_col_idx, del_url=False, header_row_excel=1):
+    def _embed_setup_new(self, fname, source_col_idx, del_url=False, header_row_excel=1):
         """Create a new workbook for embedding. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
@@ -1493,21 +1851,21 @@ class SheetPicApp:
         out_col = 1
         img_header_col = 1
         for i, col_name in enumerate(orig_cols):
-            if del_url and i == url_col_idx:
+            if del_url and i == source_col_idx:
                 ws.cell(row=header_row_excel, column=out_col, value="图片")
                 img_header_col = out_col
                 out_col += 1
             else:
                 ws.cell(row=header_row_excel, column=out_col, value=col_name)
                 out_col += 1
-                if not del_url and i == url_col_idx:
+                if not del_url and i == source_col_idx:
                     ws.cell(row=header_row_excel, column=out_col, value="图片")
                     img_header_col = out_col
                     out_col += 1
 
         return out_file, ws, wb_out, img_header_col, header_row_excel
 
-    def _embed_setup_original(self, fname, url_col_idx, del_url=False):
+    def _embed_setup_original(self, fname, source_col_idx, del_url=False):
         """Load original workbook, insert image column. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_WithImages.xlsx")
@@ -1516,7 +1874,7 @@ class SheetPicApp:
         if self.file_path == "Clipboard" or not os.path.exists(self.file_path):
             # Clipboard mode: fallback to new workbook
             self._embed_setup_used_original = False
-            return self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
+            return self._embed_setup_new(fname, source_col_idx, del_url, header_row_excel)
 
         ext = os.path.splitext(self.file_path)[1].lower()
         if ext != '.xlsx':
@@ -1524,44 +1882,44 @@ class SheetPicApp:
             self.root.after(0, lambda e=display_ext: self.log(
                 self.T['log_embed_format_fallback'].format(e)))
             self._embed_setup_used_original = False
-            return self._embed_setup_new(fname, url_col_idx, del_url, header_row_excel)
+            return self._embed_setup_new(fname, source_col_idx, del_url, header_row_excel)
 
         wb_out = openpyxl.load_workbook(self.file_path)
         ws = wb_out.active
 
-        # Find header row and URL column in the Excel sheet
-        url_col_name = str(self.df.columns[url_col_idx])
+        # Find header row and the source/anchor column in the Excel sheet.
+        source_col_name = str(self.df.columns[source_col_idx])
 
-        url_excel_col = None
+        source_excel_col = None
         for col_idx in range(1, ws.max_column + 1):
             cell_val = ws.cell(row=header_row_excel, column=col_idx).value
-            if cell_val is not None and str(cell_val).strip() == url_col_name:
-                url_excel_col = col_idx
+            if cell_val is not None and str(cell_val).strip() == source_col_name:
+                source_excel_col = col_idx
                 break
 
-        if url_excel_col is None:
+        if source_excel_col is None:
             # Fallback: search all rows for the header
             for r in range(1, min(ws.max_row + 1, 20)):
                 for c in range(1, ws.max_column + 1):
                     cell_val = ws.cell(row=r, column=c).value
-                    if cell_val is not None and str(cell_val).strip() == url_col_name:
-                        url_excel_col = c
+                    if cell_val is not None and str(cell_val).strip() == source_col_name:
+                        source_excel_col = c
                         header_row_excel = r
                         break
-                if url_excel_col:
+                if source_excel_col:
                     break
 
-        if url_excel_col is None:
+        if source_excel_col is None:
             # Last resort: use column index directly
-            url_excel_col = url_col_idx + 1
+            source_excel_col = source_col_idx + 1
 
         if del_url:
             # Replace URL column with image column
-            img_header_col = url_excel_col
+            img_header_col = source_excel_col
             ws.cell(row=header_row_excel, column=img_header_col, value="图片")
         else:
-            # Insert a new column after the URL column for images
-            img_header_col = url_excel_col + 1
+            # Insert a new column after the selected source column for images.
+            img_header_col = source_excel_col + 1
             ws.insert_cols(img_header_col)
             ws.cell(row=header_row_excel, column=img_header_col, value="图片")
 

@@ -29,6 +29,8 @@ Download or export images from spreadsheets into a local folder.
 Download images from URLs and embed them directly into Excel cells.
 
 - **URL column detection**: Auto-detects columns containing image URLs
+- **Reusable URL library**: Import a SKU/barcode-to-image-URL table once, then embed images from future barcode-only sheets
+- **Background handling**: Choose white-background JPG or preserve source alpha as transparent PNG. JPG sources cannot be made transparent.
 - **Thumbnail parameter stripping**: Removes CDN resize params (`!200x200`, `?width=300`, `?x-oss-process=...`) to download originals
 - **Aspect ratio preservation**: Images scale to fit row height while keeping original proportions
 - **Configurable size**: Set max dimension (default 500px), or insert original resolution
@@ -71,9 +73,9 @@ Go to [Releases](../../releases) and download:
 
 ### Embed mode (嵌入)
 
-1. Select an Excel/CSV file containing image URLs
-2. Choose the **URL column** and **SKU/ID column**
-3. Set **max dimension** (default 500px) or check **Original Size**
+1. Select an Excel/CSV file containing image URLs, or import a reusable URL library first
+2. Choose the **URL column** or **URL Library**, plus the **SKU/ID column**
+3. Set **max dimension** and choose **White JPG** or **Preserve PNG alpha**
 4. Optionally check **Delete URL column after embedding**
 5. Click **Start** -- a new Excel file is created with images embedded in cells
 

@@ -28,6 +28,9 @@ def _build_app(df, wb=None, ws=None):
     app.embed_url_cols = []
     app.embed_url_col_idx = 0
     app.embed_sku_col_idx = 0
+    app.embed_use_url_library = False
+    app.url_library = {}
+    app._url_library_combo_value = None
 
     # Stub root so process_df's after-call works for update_ui_lists.
     captured = {}
@@ -61,10 +64,22 @@ def _build_app(df, wb=None, ws=None):
         def config(self, **kw):
             pass
 
+        def bind(self, *_args, **_kwargs):
+            pass
+
     app.combo_img = _ComboStub()
     app.combo_code = _ComboStub()
     app.combo_url = _ComboStub()
     app.combo_sku = _ComboStub()
+
+    class _ButtonStub:
+        def __init__(self):
+            self.state = None
+
+        def config(self, **kw):
+            self.state = kw.get('state', self.state)
+
+    app.btn_run = _ButtonStub()
     app.log = lambda *_a, **_k: None
     app._captured = captured
     return app
@@ -111,6 +126,23 @@ def test_process_df_does_not_coerce_all_values_to_strings():
     app = _build_app(df)
     app.process_df()
     assert app.df.iloc[0, 1] == 1
+
+
+def test_url_library_enables_embed_without_url_column():
+    df = pd.DataFrame({
+        '条码': ['A001', 'A002'],
+        '商品名称': ['杯子', '盘子'],
+    })
+    app = _build_app(df)
+    app.mode = 'embed'
+    app.url_library = {'A001': 'https://img.example.com/a001.webp'}
+
+    app.process_df()
+
+    assert app.combo_url.values == ['[URL库] 按SKU/ID匹配 (1 条)']
+    assert app.embed_use_url_library is True
+    assert app.embed_url_col_idx is None
+    assert app.btn_run.state == 'normal'
 
 
 def test_real_user_file_qinrun(tmp_path):
