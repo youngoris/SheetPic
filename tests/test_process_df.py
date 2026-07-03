@@ -57,6 +57,8 @@ def _build_app(df, wb=None, ws=None):
 
         def current(self, i):
             self.current_idx = i
+            if 0 <= i < len(self.values):
+                self.value = self.values[i]
 
         def set(self, v):
             self.value = v
@@ -161,6 +163,63 @@ def test_url_library_import_indexes_all_identifier_columns():
     assert app.url_library['690001'] == 'https://img.example.com/1.jpg'
     assert app.url_library['S002'] == 'https://img.example.com/2.jpg'
     assert app.url_library['690002'] == 'https://img.example.com/2.jpg'
+
+
+def test_url_library_import_keeps_extra_fields_for_ui_and_output():
+    df = pd.DataFrame({
+        'SKU': ['S001', 'S002'],
+        '条形码': ['690001', '690002'],
+        '商品名称': ['杯子', '盘子'],
+        '品牌': ['方寸', '方寸'],
+        '图片': ['https://img.example.com/1.jpg', 'https://img.example.com/2.jpg'],
+    })
+    app = _build_app(df)
+
+    added = app._merge_url_library_from_df(df)
+
+    assert added == 4
+    assert app.url_library_field_names == ['SKU', '条形码', '商品名称', '品牌']
+    assert app.url_library_selected_fields == ['商品名称', '品牌']
+    assert app.url_library_records['S001']['商品名称'] == '杯子'
+    assert app.url_library_records['690002']['品牌'] == '方寸'
+
+
+def test_url_library_auto_selects_matching_barcode_column():
+    df = pd.DataFrame({
+        '组合': ['货架组合1', None, None],
+        '货位编码': ['H01-01-01-01', 'H01-01-01-A', 'H01-01-01-02'],
+        '条形码': ['690001', None, '690002'],
+        '商品名称': ['商品1', '分类行', '商品2'],
+    })
+    app = _build_app(df)
+    app.mode = 'embed'
+    app.url_library = {
+        '690001': 'https://img.example.com/1.jpg',
+        '690002': 'https://img.example.com/2.jpg',
+    }
+
+    app.process_df()
+
+    assert app.combo_url.values == ['[URL库] 按SKU/ID匹配 (2 条)']
+    assert app.embed_use_url_library is True
+    assert app.combo_sku.value == '条形码 (C)'
+    assert app.embed_sku_col_idx == 2
+
+
+def test_embed_sku_default_prefers_barcode_and_syncs_index():
+    df = pd.DataFrame({
+        '组合': ['货架组合1', None],
+        '货位编码': ['H01-01-01-01', 'H01-01-01-02'],
+        '条形码': ['690001', '690002'],
+        '图片': ['https://img.example.com/1.jpg', 'https://img.example.com/2.jpg'],
+    })
+    app = _build_app(df)
+    app.mode = 'embed'
+
+    app.process_df()
+
+    assert app.combo_sku.value == '条形码 (C)'
+    assert app.embed_sku_col_idx == 2
 
 
 def test_real_user_file_qinrun(tmp_path):
