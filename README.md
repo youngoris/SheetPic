@@ -22,6 +22,8 @@ Download or export images from spreadsheets into a local folder.
 - **Dual-source parsing**: `Pandas` for text/URL columns, `OpenPyXL` for embedded cell images
 - **Smart header detection**: Auto-locates the header row even if data starts at row 5
 - **Multi-column merge**: When multiple columns contain images, auto-selects the richest column
+- **Same-name skip**: Existing output filenames are skipped to avoid duplicate downloads
+- **Retry failed downloads**: Retry only failed extract downloads after a run completes
 - **Clipboard mode**: Copy a table from anywhere, paste and process
 
 ### Embed (嵌入图片)
@@ -29,12 +31,11 @@ Download or export images from spreadsheets into a local folder.
 Download images from URLs and embed them directly into Excel cells.
 
 - **URL column detection**: Auto-detects columns containing image URLs
-- **Reusable URL library**: Import a SKU/barcode-to-image-URL table once, then embed images from future barcode-only sheets
-- **Background handling**: Choose white-background JPG or preserve source alpha as transparent PNG. JPG sources cannot be made transparent.
+- **Reusable URL library**: Import a SKU/barcode table with image URLs and optional product fields, then embed images and selected fields into future barcode-only sheets
 - **Thumbnail parameter stripping**: Removes CDN resize params (`!200x200`, `?width=300`, `?x-oss-process=...`) to download originals
+- **Background handling**: Choose white-background JPG or preserve source alpha as transparent PNG. JPG sources cannot be made transparent.
 - **Aspect ratio preservation**: Images scale to fit row height while keeping original proportions
 - **Configurable size**: Set max dimension (default 500px), or insert original resolution
-- **Delete URL column**: Option to remove the source URL column after embedding
 
 ### Shared
 
@@ -75,8 +76,8 @@ Go to [Releases](../../releases) and download:
 
 1. Select an Excel/CSV file containing image URLs, or import a reusable URL library first
 2. Choose the **URL column** or **URL Library**, plus the **SKU/ID column**
-3. Set **max dimension** and choose **White JPG** or **Preserve PNG alpha**
-4. Optionally check **Delete URL column after embedding**
+3. Select optional **URL Library Fields**
+4. Set **max dimension** and choose **White JPG** or **Preserve PNG alpha**
 5. Click **Start** -- a new Excel file is created with images embedded in cells
 
 ---

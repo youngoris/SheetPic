@@ -82,7 +82,7 @@ def XlImage(*args, **kwargs):
 # ==========================================
 # 版本号
 # ==========================================
-APP_VERSION = "1.0.38"
+APP_VERSION = "1.0.39"
 
 # ==========================================
 # 语言与配置
@@ -116,13 +116,15 @@ LANG_MAP = {
         'lbl_sku_col': "SKU/ID列 (用于排序)",
         'lbl_img_size': "最大边长 (px)",
         'lbl_url_library': "URL库: {} 条",
+        'lbl_url_library_fields': "URL库字段: {} 个",
         'btn_import_url_lib': "导入URL库",
         'btn_clear_url_lib': "清空URL库",
+        'btn_select_all_fields': "全选",
+        'btn_clear_fields': "不选",
         'lbl_img_bg': "图片背景",
         'opt_bg_white': "白底 JPG",
         'opt_bg_transparent': "保留透明 PNG",
         'chk_original': "插入原图 (不缩放)",
-        'chk_del_url': "嵌入后删除原URL列",
         'chk_write_original': "写入原文件 (保留格式)",
         'msg_no_url': "❌ 未检测到包含URL的列",
         'opt_url_library': "[URL库] 按SKU/ID匹配 ({} 条)",
@@ -136,6 +138,7 @@ LANG_MAP = {
         'msg_embed_done': "耗时: {:.1f}s\n嵌入成功: {}\n下载失败: {}\n输出文件: {}",
         'msg_dl_fail': "[下载失败]",
         'msg_dl_skip': "[无URL]",
+        'msg_same_name_skip': "⏭ {}: [同名跳过] 文件已存在",
         'msg_invalid_url': "⚠️ {}: [无效URL] {}",
         'msg_conn_err': "❌ {}: [连接失败] {}",
         'msg_ssl_err': "❌ {}: [SSL错误] {}",
@@ -148,6 +151,7 @@ LANG_MAP = {
         'embed_status_run': "嵌入: {}/{} (成功: {} | 失败: {})",
         # Shared
         'btn_start': "开始处理",
+        'btn_retry_failed': "重试失败",
         'btn_stop': "停止",
         'status_idle': "准备就绪",
         'status_run': "进度: {}/{} (成功: {} | 失败: {} | 跳过: {})",
@@ -192,13 +196,15 @@ LANG_MAP = {
         'lbl_sku_col': "SKU/ID Column (for ordering)",
         'lbl_img_size': "Max Dimension (px)",
         'lbl_url_library': "URL Library: {} items",
+        'lbl_url_library_fields': "URL Library Fields: {}",
         'btn_import_url_lib': "Import URL Library",
         'btn_clear_url_lib': "Clear URL Library",
+        'btn_select_all_fields': "All",
+        'btn_clear_fields': "None",
         'lbl_img_bg': "Image Background",
         'opt_bg_white': "White JPG",
         'opt_bg_transparent': "Preserve PNG alpha",
         'chk_original': "Original Size (no resize)",
-        'chk_del_url': "Delete URL column after embedding",
         'chk_write_original': "Write to original file (preserve format)",
         'msg_no_url': "❌ No URL column detected",
         'opt_url_library': "[URL Library] Match by SKU/ID ({} items)",
@@ -212,6 +218,7 @@ LANG_MAP = {
         'msg_embed_done': "Time: {:.1f}s\nEmbedded: {}\nFailed: {}\nOutput: {}",
         'msg_dl_fail': "[Download Failed]",
         'msg_dl_skip': "[No URL]",
+        'msg_same_name_skip': "⏭ {}: [Same Name Skip] File already exists",
         'msg_invalid_url': "⚠️ {}: [Invalid URL] {}",
         'msg_conn_err': "❌ {}: [Connection Error] {}",
         'msg_ssl_err': "❌ {}: [SSL Error] {}",
@@ -224,6 +231,7 @@ LANG_MAP = {
         'embed_status_run': "Embed: {} / {} (OK: {} | Fail: {})",
         # Shared
         'btn_start': "Start",
+        'btn_retry_failed': "Retry Failed",
         'btn_stop': "Stop",
         'status_idle': "Ready",
         'status_run': "{} / {} (OK: {} Fail: {} Skip: {})",
@@ -254,10 +262,23 @@ EMBED_IMAGE_JPEG_QUALITY = 85
 EMBED_BG_WHITE = "white"
 EMBED_BG_TRANSPARENT = "transparent"
 URL_LIBRARY_CONFIG_KEY = "url_library"
+URL_LIBRARY_RECORDS_CONFIG_KEY = "url_library_records"
+URL_LIBRARY_FIELDS_CONFIG_KEY = "url_library_fields"
+URL_LIBRARY_SELECTED_FIELDS_CONFIG_KEY = "url_library_selected_fields"
+EXTRACT_TIMEOUT_RETRIES = 2
 URL_LIBRARY_CODE_KEYWORDS = (
     "条形码", "条码", "商品条码", "sku", "barcode", "bar code",
     "ean", "upc", "gtin", "货号", "商品编码", "编码", "编号",
     "code", "id",
+)
+SKU_COLUMN_EXCLUDE_KEYWORDS = ("货位", "库位", "货架", "层板", "位置")
+SKU_COLUMN_HIGH_PRIORITY_KEYWORDS = (
+    "条形码", "商品条码", "条码", "sku", "barcode", "bar code",
+    "ean", "upc", "gtin",
+)
+SKU_COLUMN_MEDIUM_PRIORITY_KEYWORDS = (
+    "货号", "商品编码", "产品编码", "商品编号", "产品编号",
+    "code", "id", "编码", "编号",
 )
 
 
@@ -329,6 +350,30 @@ def _extract_http_url(value):
     if match:
         return match.group(0)
     return None
+
+
+def _normalize_library_field_name(value):
+    text = str(value).strip()
+    if not text or text.startswith("Unnamed"):
+        return ''
+    return text
+
+
+def _json_safe_value(value):
+    if _is_blank(value):
+        return ''
+    if hasattr(value, 'item'):
+        try:
+            value = value.item()
+        except Exception:
+            pass
+    if isinstance(value, float) and math.isnan(value):
+        return ''
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat()
+    if isinstance(value, (str, int, float, bool)):
+        return value
+    return str(value)
 
 
 def _cell_type(v):
@@ -572,8 +617,12 @@ class SheetPicApp:
         self.embed_url_cols = []
         self.embed_use_url_library = False
         self.url_library = self._load_url_library()
+        self.url_library_records = self._load_url_library_records()
+        self.url_library_field_names = self._load_url_library_fields()
+        self.url_library_selected_fields = self._load_url_library_selected_fields()
         self._url_library_combo_value = None
         self.var_img_bg = None
+        self.extract_failed_tasks = []
 
         self.setup_style()
         self.setup_ui()
@@ -654,9 +703,57 @@ class SheetPicApp:
                 library[key] = clean_url
         return library
 
+    def _load_url_library_records(self):
+        raw = self._load_config().get(URL_LIBRARY_RECORDS_CONFIG_KEY, {})
+        if not isinstance(raw, dict):
+            return {}
+        records = {}
+        for code, record in raw.items():
+            key = _normalize_lookup_code(code)
+            if not key or not isinstance(record, dict):
+                continue
+            clean_record = {}
+            for field, value in record.items():
+                field_name = _normalize_library_field_name(field)
+                if field_name:
+                    clean_record[field_name] = _json_safe_value(value)
+            if clean_record:
+                records[key] = clean_record
+        return records
+
+    def _load_url_library_fields(self):
+        raw = self._load_config().get(URL_LIBRARY_FIELDS_CONFIG_KEY, [])
+        if not isinstance(raw, list):
+            return []
+        fields = []
+        seen = set()
+        for field in raw:
+            field_name = _normalize_library_field_name(field)
+            if field_name and field_name not in seen:
+                fields.append(field_name)
+                seen.add(field_name)
+        return fields
+
+    def _load_url_library_selected_fields(self):
+        raw = self._load_config().get(URL_LIBRARY_SELECTED_FIELDS_CONFIG_KEY, [])
+        if not isinstance(raw, list):
+            return []
+        available = set(getattr(self, 'url_library_field_names', []) or [])
+        selected = []
+        seen = set()
+        for field in raw:
+            field_name = _normalize_library_field_name(field)
+            if field_name and field_name not in seen and (not available or field_name in available):
+                selected.append(field_name)
+                seen.add(field_name)
+        return selected
+
     def _save_url_library(self):
         cfg = self._load_config()
         cfg[URL_LIBRARY_CONFIG_KEY] = getattr(self, 'url_library', {})
+        cfg[URL_LIBRARY_RECORDS_CONFIG_KEY] = getattr(self, 'url_library_records', {})
+        cfg[URL_LIBRARY_FIELDS_CONFIG_KEY] = getattr(self, 'url_library_field_names', [])
+        cfg[URL_LIBRARY_SELECTED_FIELDS_CONFIG_KEY] = getattr(self, 'url_library_selected_fields', [])
         self._write_config(cfg)
 
     def switch_lang(self, lang):
@@ -780,6 +877,9 @@ class SheetPicApp:
         self.btn_run = ttk.Button(btn_box, text=self.T['btn_start'], style="Primary.TButton",
                                    command=self.start_thread, state='disabled')
         self.btn_run.pack(side='left', fill='x', expand=True, padx=(0, 5), ipady=5)
+        self.btn_retry = ttk.Button(btn_box, text=self.T['btn_retry_failed'],
+                                    command=self.retry_failed_extract, state='disabled')
+        self.btn_retry.pack(side='left', fill='x', expand=True, padx=5, ipady=5)
         self.btn_stop = ttk.Button(btn_box, text=self.T['btn_stop'], style="Danger.TButton",
                                     command=self.stop_thread, state='disabled')
         self.btn_stop.pack(side='right', fill='x', expand=True, padx=(5, 0), ipady=5)
@@ -861,7 +961,50 @@ class SheetPicApp:
         ttk.Button(row_lib, text=self.T['btn_clear_url_lib'],
                    command=self.clear_url_library).pack(side='right')
 
-        # 最大边长 + 3 个选项 同行排列（4 列：[输入框] [chk] [chk] [chk]）
+        row_fields = tk.Frame(parent, bg=COLORS['card'])
+        row_fields.pack(fill='x', pady=(0, 8))
+        fields_head = tk.Frame(row_fields, bg=COLORS['card'])
+        fields_head.pack(fill='x')
+        self.lbl_url_library_fields = tk.Label(
+            fields_head,
+            text=self.T['lbl_url_library_fields'].format(len(getattr(self, 'url_library_field_names', []))),
+            bg=COLORS['card'],
+            fg=COLORS['text_sub'],
+            font=("Arial", 10)
+        )
+        self.lbl_url_library_fields.pack(side='left')
+        self.btn_url_fields_all = ttk.Button(
+            fields_head,
+            text=self.T['btn_select_all_fields'],
+            command=self.select_all_url_library_fields
+        )
+        self.btn_url_fields_all.pack(side='right', padx=(5, 0))
+        self.btn_url_fields_none = ttk.Button(
+            fields_head,
+            text=self.T['btn_clear_fields'],
+            command=self.clear_selected_url_library_fields
+        )
+        self.btn_url_fields_none.pack(side='right')
+
+        fields_box = tk.Frame(row_fields, bg=COLORS['card'])
+        fields_box.pack(fill='x', pady=(2, 0))
+        self.list_url_fields = tk.Listbox(
+            fields_box,
+            height=4,
+            selectmode=tk.MULTIPLE,
+            exportselection=False,
+            relief='solid',
+            borderwidth=1,
+            highlightthickness=0
+        )
+        self.list_url_fields.pack(side='left', fill='x', expand=True)
+        fields_scroll = ttk.Scrollbar(fields_box, orient='vertical', command=self.list_url_fields.yview)
+        fields_scroll.pack(side='right', fill='y')
+        self.list_url_fields.config(yscrollcommand=fields_scroll.set)
+        self.list_url_fields.bind('<<ListboxSelect>>', self._on_url_library_fields_selected)
+        self._refresh_url_library_fields_ui()
+
+        # 最大边长 + 选项 同行排列
         row_size = tk.Frame(parent, bg=COLORS['card'])
         row_size.pack(fill='x')
         tk.Label(row_size, text=self.T['lbl_img_size'], bg=COLORS['card'],
@@ -879,22 +1022,15 @@ class SheetPicApp:
                                   font=("Arial", 10),
                                   activebackground=COLORS['card'], **kw)
 
-        # 第二列：插入原图 + 嵌入后删除原URL列（上下两行）
         self.var_original = tk.BooleanVar(value=False)
         chk_original = _mk_chk(self.T['chk_original'], self.var_original,
                                command=self._toggle_max_dim)
         chk_original.grid(row=0, column=1, sticky='w', padx=(0, 12))
 
-        self.var_del_url = tk.BooleanVar(value=False)
-        chk_del = _mk_chk(self.T['chk_del_url'], self.var_del_url)
-        chk_del.grid(row=1, column=1, sticky='w', padx=(0, 12))
-
-        # 第三列：写入原文件
         self.var_write_original = tk.BooleanVar(value=False)
         chk_wo = _mk_chk(self.T['chk_write_original'], self.var_write_original)
         chk_wo.grid(row=0, column=2, sticky='w')
 
-        # 第四列：背景模式
         bg_frame = tk.Frame(size_frame, bg=COLORS['card'])
         bg_frame.grid(row=0, column=3, rowspan=2, sticky='w', padx=(16, 0))
         tk.Label(bg_frame, text=self.T['lbl_img_bg'], bg=COLORS['card'],
@@ -946,6 +1082,7 @@ class SheetPicApp:
     def on_tab_changed(self, event):
         tab = self.notebook.index(self.notebook.select())
         self.mode = 'extract' if tab == 0 else 'embed'
+        self._update_retry_button_state()
 
     def _update_sheet_combo(self, selected):
         self.combo_sheet['values'] = self.sheet_names
@@ -1047,6 +1184,9 @@ class SheetPicApp:
         if not messagebox.askyesno(self.T['title'], self.T['msg_url_lib_clear_confirm']):
             return
         self.url_library = {}
+        self.url_library_records = {}
+        self.url_library_field_names = []
+        self.url_library_selected_fields = []
         self._save_url_library()
         self._refresh_url_library_status()
         self.log(self.T['msg_url_lib_cleared'])
@@ -1058,6 +1198,60 @@ class SheetPicApp:
             self.lbl_url_library.config(
                 text=self.T['lbl_url_library'].format(len(getattr(self, 'url_library', {})))
             )
+        self._refresh_url_library_fields_ui()
+
+    def _refresh_url_library_fields_ui(self):
+        if not hasattr(self, 'list_url_fields'):
+            return
+
+        fields = list(getattr(self, 'url_library_field_names', []) or [])
+        selected = set(getattr(self, 'url_library_selected_fields', []) or [])
+        self._updating_url_field_selection = True
+        try:
+            self.list_url_fields.config(state='normal')
+            self.list_url_fields.delete(0, tk.END)
+            for field in fields:
+                self.list_url_fields.insert(tk.END, field)
+            for idx, field in enumerate(fields):
+                if field in selected:
+                    self.list_url_fields.selection_set(idx)
+        finally:
+            self._updating_url_field_selection = False
+
+        state = 'normal' if fields else 'disabled'
+        self.list_url_fields.config(state=state)
+        if hasattr(self, 'btn_url_fields_all'):
+            self.btn_url_fields_all.config(state=state)
+        if hasattr(self, 'btn_url_fields_none'):
+            self.btn_url_fields_none.config(state=state)
+        if hasattr(self, 'lbl_url_library_fields'):
+            self.lbl_url_library_fields.config(text=self.T['lbl_url_library_fields'].format(len(fields)))
+
+    def _on_url_library_fields_selected(self, _event=None):
+        if getattr(self, '_updating_url_field_selection', False):
+            return
+        self.url_library_selected_fields = self._get_selected_url_library_fields(read_widget=True)
+        self._save_url_library()
+
+    def _get_selected_url_library_fields(self, read_widget=False):
+        fields = list(getattr(self, 'url_library_field_names', []) or [])
+        if read_widget and hasattr(self, 'list_url_fields'):
+            selected_indices = set(int(i) for i in self.list_url_fields.curselection())
+            selected = [field for idx, field in enumerate(fields) if idx in selected_indices]
+        else:
+            selected_set = set(getattr(self, 'url_library_selected_fields', []) or [])
+            selected = [field for field in fields if field in selected_set]
+        return selected
+
+    def select_all_url_library_fields(self):
+        self.url_library_selected_fields = list(getattr(self, 'url_library_field_names', []) or [])
+        self._save_url_library()
+        self._refresh_url_library_fields_ui()
+
+    def clear_selected_url_library_fields(self):
+        self.url_library_selected_fields = []
+        self._save_url_library()
+        self._refresh_url_library_fields_ui()
 
     def _read_table_for_url_library(self, path):
         ext = os.path.splitext(path)[1].lower()
@@ -1090,6 +1284,53 @@ class SheetPicApp:
                 continue
             return True
         return False
+
+    @staticmethod
+    def _combo_option_column_name(option):
+        return re.sub(r"\s+\([A-Z]+\)$", "", str(option)).strip()
+
+    @staticmethod
+    def _score_sku_column_name(col_name):
+        name = str(col_name).strip().lower()
+        if not name or name.startswith("unnamed"):
+            return -1
+        compact = re.sub(r"\s+", "", name)
+        if any(keyword in compact for keyword in SKU_COLUMN_EXCLUDE_KEYWORDS):
+            return -1
+        for keyword in SKU_COLUMN_HIGH_PRIORITY_KEYWORDS:
+            key = keyword.lower().replace(" ", "")
+            if key in compact:
+                return 200
+        for keyword in SKU_COLUMN_MEDIUM_PRIORITY_KEYWORDS:
+            key = keyword.lower().replace(" ", "")
+            if key not in compact:
+                continue
+            if key == "id" and compact not in ("id", "商品id", "产品id") and not compact.endswith("id"):
+                continue
+            return 100
+        return -1
+
+    def _best_url_library_match_col_idx(self):
+        library = getattr(self, 'url_library', {}) or {}
+        if self.df is None or self.df.empty or not library:
+            return None
+
+        best_idx = None
+        best_hits = 0
+        best_name_score = -1
+        for i, col_name in enumerate(self.df.columns):
+            hits = 0
+            for value in self.df.iloc[:, i]:
+                code = _normalize_lookup_code(value)
+                if code and code in library:
+                    hits += 1
+            name_score = self._score_sku_column_name(col_name)
+            if hits > best_hits or (hits == best_hits and hits > 0 and name_score > best_name_score):
+                best_idx = i
+                best_hits = hits
+                best_name_score = name_score
+
+        return best_idx if best_hits > 0 else None
 
     def _detect_url_library_mapping_columns(self, df):
         if df is None or df.empty:
@@ -1136,12 +1377,43 @@ class SheetPicApp:
 
         if not hasattr(self, 'url_library') or self.url_library is None:
             self.url_library = {}
+        if not hasattr(self, 'url_library_records') or self.url_library_records is None:
+            self.url_library_records = {}
+        if not hasattr(self, 'url_library_field_names') or self.url_library_field_names is None:
+            self.url_library_field_names = []
+        if not hasattr(self, 'url_library_selected_fields') or self.url_library_selected_fields is None:
+            self.url_library_selected_fields = []
+
+        field_columns = []
+        existing_fields = list(self.url_library_field_names)
+        existing_field_set = set(existing_fields)
+        default_selected = set(self.url_library_selected_fields)
+        code_col_set = set(code_col_indices)
+        for idx, col_name in enumerate(df.columns):
+            if idx == url_col_idx:
+                continue
+            field_name = _normalize_library_field_name(col_name)
+            if not field_name:
+                continue
+            field_columns.append((idx, field_name))
+            if field_name not in existing_field_set:
+                existing_fields.append(field_name)
+                existing_field_set.add(field_name)
+                if idx not in code_col_set:
+                    default_selected.add(field_name)
+        self.url_library_field_names = existing_fields
+        self.url_library_selected_fields = [
+            field for field in self.url_library_field_names if field in default_selected
+        ]
 
         added = 0
         for _, row in df.iterrows():
             url = _extract_http_url(row.iloc[url_col_idx])
             if not url:
                 continue
+            record = {}
+            for field_col_idx, field_name in field_columns:
+                record[field_name] = _json_safe_value(row.iloc[field_col_idx])
             row_codes = set()
             for code_col_idx in code_col_indices:
                 code = _normalize_lookup_code(row.iloc[code_col_idx])
@@ -1149,6 +1421,7 @@ class SheetPicApp:
                     continue
                 row_codes.add(code)
                 self.url_library[code] = url
+                self.url_library_records[code] = record
                 added += 1
         return added
 
@@ -1366,12 +1639,26 @@ class SheetPicApp:
                 self.log(self.T['msg_no_url'])
 
         self.combo_sku['values'] = sku_opts
-        best_sku = next((x for x in sku_opts if any(k in x.lower()
-                         for k in ["code", "sku", "条码", "货号", "id"])), None)
+        best_sku = None
+        best_library_match_idx = self._best_url_library_match_col_idx() if library_count else None
+        if best_library_match_idx is not None and best_library_match_idx < len(sku_opts):
+            best_sku = sku_opts[best_library_match_idx]
+        else:
+            best_score = -1
+            for option in sku_opts:
+                score = self._score_sku_column_name(self._combo_option_column_name(option))
+                if score > best_score:
+                    best_sku = option
+                    best_score = score
+            if best_score < 0:
+                best_sku = None
+
         if best_sku:
             self.combo_sku.set(best_sku)
+            self.embed_sku_col_idx = self._get_col_index(best_sku)
         elif sku_opts:
             self.combo_sku.current(0)
+            self.embed_sku_col_idx = 0
         self.combo_url.config(state='readonly' if url_opts else 'disabled')
         self.combo_sku.config(state='readonly')
         self.combo_url.bind('<<ComboboxSelected>>', self._on_url_selected)
@@ -1422,11 +1709,31 @@ class SheetPicApp:
     def start_thread(self):
         self.is_running = True
         self.btn_run.config(state='disabled')
+        if hasattr(self, 'btn_retry'):
+            self.btn_retry.config(state='disabled')
         self.btn_stop.config(state='normal')
         if self.mode == 'extract':
             threading.Thread(target=self.run_extract_process, daemon=True).start()
         else:
             threading.Thread(target=self.run_embed_process, daemon=True).start()
+
+    def _update_retry_button_state(self):
+        if not hasattr(self, 'btn_retry'):
+            return
+        state = 'normal' if getattr(self, 'mode', 'extract') == 'extract' and getattr(self, 'extract_failed_tasks', []) else 'disabled'
+        self.btn_retry.config(state=state)
+
+    def retry_failed_extract(self):
+        tasks = list(getattr(self, 'extract_failed_tasks', []) or [])
+        if not tasks or self.is_running:
+            return
+        self.extract_failed_tasks = []
+        self.is_running = True
+        self._process_start_time = time.time()
+        self.btn_run.config(state='disabled')
+        self.btn_retry.config(state='disabled')
+        self.btn_stop.config(state='normal')
+        threading.Thread(target=self.run_extract_retry_process, args=(tasks,), daemon=True).start()
 
     def stop_thread(self):
         self.is_running = False
@@ -1442,6 +1749,8 @@ class SheetPicApp:
     def run_extract_process(self):
         t_start = time.time()
         self._process_start_time = t_start
+        self.extract_failed_tasks = []
+        self.root.after(0, self._update_retry_button_state)
         dest = self.entry_dest.get()
         fname = "Clipboard" if self.file_path == "Clipboard" else os.path.splitext(os.path.basename(self.file_path))[0]
         out_dir = os.path.join(dest, f"{fname}_Img")
@@ -1474,7 +1783,8 @@ class SheetPicApp:
         fail = 0
         skipped = 0
         self.progress['maximum'] = len(self.df)
-        tasks = []
+        tasks = {}
+        planned_names = set()
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             for i in range(len(self.df)):
@@ -1520,6 +1830,12 @@ class SheetPicApp:
                 for img_idx, (src_type, src_data) in enumerate(row_images):
                     suffix = f"-{img_idx}" if img_idx > 0 else ""
                     final_name = f"{base_name}{suffix}"
+                    if final_name in planned_names or self._extract_output_exists(out_dir, final_name):
+                        skipped += 1
+                        self.root.after(0, self.update_progress_ext, i+1, len(self.df), success, fail, skipped,
+                                        self.T['msg_same_name_skip'].format(final_name))
+                        continue
+                    planned_names.add(final_name)
 
                     if src_type == 'embed':
                         try:
@@ -1531,7 +1847,14 @@ class SheetPicApp:
                         except Exception:
                             fail += 1
                     else:
-                        tasks.append(executor.submit(self.download_url, src_data, final_name, out_dir))
+                        task = {'url': src_data, 'filename_base': final_name, 'out_dir': out_dir}
+                        future = executor.submit(
+                            self.download_url,
+                            task['url'],
+                            task['filename_base'],
+                            task['out_dir']
+                        )
+                        tasks[future] = task
 
                 self.root.after(0, self.update_progress_ext, i+1, len(self.df), success, fail, skipped, "Process")
 
@@ -1539,22 +1862,112 @@ class SheetPicApp:
             for future in concurrent.futures.as_completed(tasks):
                 if not self.is_running:
                     break
-                is_ok, msg = future.result()
+                task = tasks[future]
+                try:
+                    is_ok, msg = future.result()
+                except Exception as e:
+                    is_ok, msg = False, self.T['msg_err'].format(
+                        task['filename_base'],
+                        f"{type(e).__name__}: {str(e)[:60]}"
+                    )
                 if is_ok:
                     success += 1
                 else:
                     fail += 1
+                    self.extract_failed_tasks.append(task)
                 self.root.after(0, self.update_progress_ext, len(self.df), len(self.df), success, fail, skipped, msg)
+
+        duration = time.time() - t_start
+        self.root.after(0, lambda: self.extract_finish(success, fail, skipped, out_dir, duration))
+
+    def run_extract_retry_process(self, retry_tasks):
+        t_start = time.time()
+        self._process_start_time = t_start
+        total = len(retry_tasks)
+        if total == 0:
+            self.root.after(0, self._update_retry_button_state)
+            return
+
+        success = 0
+        fail = 0
+        skipped = 0
+        out_dir = retry_tasks[0].get('out_dir', self.entry_dest.get())
+        self.progress['maximum'] = total
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {}
+            planned_names = set()
+            skipped_before_submit = 0
+            for task in retry_tasks:
+                if not self.is_running:
+                    self.extract_failed_tasks.append(task)
+                    continue
+                filename_base = task['filename_base']
+                if filename_base in planned_names or self._extract_output_exists(task['out_dir'], filename_base):
+                    skipped += 1
+                    skipped_before_submit += 1
+                    planned_names.add(filename_base)
+                    self.root.after(
+                        0,
+                        self.update_progress_ext,
+                        skipped_before_submit,
+                        total,
+                        success,
+                        fail,
+                        skipped,
+                        self.T['msg_same_name_skip'].format(filename_base)
+                    )
+                    continue
+                planned_names.add(filename_base)
+                future = executor.submit(
+                    self.download_url,
+                    task['url'],
+                    filename_base,
+                    task['out_dir']
+                )
+                futures[future] = task
+
+            completed = skipped_before_submit
+            for future in concurrent.futures.as_completed(futures):
+                task = futures[future]
+                if not self.is_running:
+                    self.extract_failed_tasks.append(task)
+                    continue
+                try:
+                    is_ok, msg = future.result()
+                except Exception as e:
+                    is_ok, msg = False, self.T['msg_err'].format(
+                        task['filename_base'],
+                        f"{type(e).__name__}: {str(e)[:60]}"
+                    )
+                completed += 1
+                if is_ok:
+                    success += 1
+                else:
+                    fail += 1
+                    self.extract_failed_tasks.append(task)
+                self.root.after(0, self.update_progress_ext, completed, total, success, fail, skipped, msg)
 
         duration = time.time() - t_start
         self.root.after(0, lambda: self.extract_finish(success, fail, skipped, out_dir, duration))
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
+    def _extract_output_exists(self, out_dir, filename_base):
+        try:
+            for name in os.listdir(out_dir):
+                stem, ext = os.path.splitext(name)
+                if stem == filename_base and ext:
+                    return True
+        except OSError:
+            return False
+        return False
+
     def download_url(self, url, filename_base, out_dir):
         if not self.is_running:
             return False, "Stopped"
-        for attempt in range(2):
+        for attempt in range(EXTRACT_TIMEOUT_RETRIES + 1):
+            path = None
             try:
                 headers = {'User-Agent': 'Mozilla/5.0'}
                 r = requests.get(url, headers=headers, timeout=10, stream=True)
@@ -1586,7 +1999,12 @@ class SheetPicApp:
                 else:
                     return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code} ({url[:60]})")
             except requests.exceptions.Timeout:
-                if attempt == 0:
+                if path and os.path.exists(path):
+                    try:
+                        os.remove(path)
+                    except OSError:
+                        pass
+                if attempt < EXTRACT_TIMEOUT_RETRIES:
                     continue
                 return False, self.T['msg_timeout'].format(filename_base)
             except requests.exceptions.SSLError as e:
@@ -1634,6 +2052,7 @@ class SheetPicApp:
         self.is_running = False
         self.btn_run.config(state='normal')
         self.btn_stop.config(state='disabled')
+        self._update_retry_button_state()
 
     # ==========================================
     # 嵌入图片处理
@@ -1708,23 +2127,24 @@ class SheetPicApp:
         sku_col_idx = self.embed_sku_col_idx
         use_url_library = bool(getattr(self, 'embed_use_url_library', False))
         url_col_idx = self.embed_url_col_idx
-        source_col_idx = sku_col_idx if use_url_library else url_col_idx
-        if source_col_idx is None:
+        image_anchor_col_idx = sku_col_idx if sku_col_idx is not None else url_col_idx
+        if (use_url_library and sku_col_idx is None) or (not use_url_library and url_col_idx is None):
             self.root.after(0, self.embed_error_finish, self.T['msg_no_url'])
             return
+        if image_anchor_col_idx is None:
+            image_anchor_col_idx = sku_col_idx if use_url_library else url_col_idx
         write_original = self.var_write_original.get()
         self._embed_setup_used_original = write_original
-
-        del_url = self.var_del_url.get() and not use_url_library
+        extra_field_names = self._get_selected_url_library_fields() if use_url_library else []
 
         header_row_excel = self.header_row + 1
         try:
             if write_original:
                 out_file, ws, wb_out, img_header_col, header_row_excel = \
-                    self._embed_setup_original(fname, source_col_idx, del_url)
+                    self._embed_setup_original(fname, image_anchor_col_idx, extra_field_names)
             else:
                 out_file, ws, wb_out, img_header_col, header_row_excel = \
-                    self._embed_setup_new(fname, source_col_idx, del_url, header_row_excel)
+                    self._embed_setup_new(fname, image_anchor_col_idx, header_row_excel, extra_field_names)
         except Exception as e:
             self.root.after(0, self.embed_error_finish, f"{type(e).__name__}: {e}")
             return
@@ -1736,11 +2156,14 @@ class SheetPicApp:
 
         # Collect URLs
         rows_data = []
+        row_library_records = []
         library_matches = 0
         for i in range(total):
+            record = {}
             if use_url_library:
                 code = _normalize_lookup_code(self.df.iloc[i, sku_col_idx])
                 url = getattr(self, 'url_library', {}).get(code)
+                record = getattr(self, 'url_library_records', {}).get(code, {})
                 if url:
                     library_matches += 1
                     url = self.clean_url(url)
@@ -1751,9 +2174,10 @@ class SheetPicApp:
                 if url:
                     url = self.clean_url(url)
                 elif url_raw and url_raw.lower() != 'nan':
-                    self.root.after(0, lambda u=url_raw: self.log(
-                        self.T['msg_invalid_url'].format(f"Row {i+1}", u[:60])))
+                        self.root.after(0, lambda u=url_raw: self.log(
+                            self.T['msg_invalid_url'].format(f"Row {i+1}", u[:60])))
             rows_data.append(url)
+            row_library_records.append(record)
 
         if use_url_library:
             self.root.after(0, lambda: self.log(
@@ -1802,18 +2226,23 @@ class SheetPicApp:
                 # Write cell values for new-workbook mode
                 out_col = 1
                 for j in range(len(orig_cols)):
-                    if del_url and j == source_col_idx:
-                        out_col += 1
-                    else:
-                        cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
-                        if cell_val.lower() == 'nan':
-                            cell_val = ""
-                        ws.cell(row=excel_row, column=out_col, value=cell_val)
-                        out_col += 1
-                        if not del_url and j == source_col_idx:
-                            out_col += 1
+                    cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
+                    if cell_val.lower() == 'nan':
+                        cell_val = ""
+                    ws.cell(row=excel_row, column=out_col, value=cell_val)
+                    out_col += 1
+                    if j == image_anchor_col_idx:
+                        out_col += 1 + len(extra_field_names)
 
             img_col_letter = get_column_letter(img_header_col)
+            if extra_field_names:
+                record = row_library_records[i] if i < len(row_library_records) else {}
+                for offset, field_name in enumerate(extra_field_names, start=1):
+                    ws.cell(
+                        row=excel_row,
+                        column=img_header_col + offset,
+                        value=_json_safe_value(record.get(field_name, ''))
+                    )
             if is_ok:
                 try:
                     xl_img = XlImage(data)
@@ -1843,22 +2272,14 @@ class SheetPicApp:
                     if not write_original:
                         out_col = 1
                         for j in range(len(orig_cols)):
-                            if del_url and j == source_col_idx:
-                                out_col += 1
-                            else:
-                                cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
-                                if cell_val.lower() == 'nan':
-                                    cell_val = ""
-                                ws.cell(row=excel_row, column=out_col, value=cell_val)
-                                out_col += 1
-                                if not del_url and j == source_col_idx:
-                                    out_col += 1
+                            cell_val = str(self.df.iloc[i, j]) if self.df.iloc[i, j] is not None else ""
+                            if cell_val.lower() == 'nan':
+                                cell_val = ""
+                            ws.cell(row=excel_row, column=out_col, value=cell_val)
+                            out_col += 1
+                            if j == image_anchor_col_idx:
+                                out_col += 1 + len(extra_field_names)
                     ws.cell(row=excel_row, column=img_header_col, value=self.T['msg_dl_skip'])
-
-        # Clear URL column cell values when deleting URL column in original workbook
-        if del_url and write_original:
-            for r in range(header_row_excel + 1, ws.max_row + 1):
-                ws.cell(row=r, column=img_header_col).value = None
 
         self.root.after(0, lambda: self.log(self.T['log_embed_save']))
         try:
@@ -1875,8 +2296,9 @@ class SheetPicApp:
         duration = time.time() - t_start
         self.root.after(0, lambda: self.embed_finish(success, fail, out_file, duration))
 
-    def _embed_setup_new(self, fname, source_col_idx, del_url=False, header_row_excel=1):
+    def _embed_setup_new(self, fname, source_col_idx, header_row_excel=1, extra_field_names=None):
         """Create a new workbook for embedding. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
+        extra_field_names = extra_field_names or []
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_Embedded.xlsx")
         wb_out = openpyxl.Workbook()
@@ -1886,22 +2308,21 @@ class SheetPicApp:
         out_col = 1
         img_header_col = 1
         for i, col_name in enumerate(orig_cols):
-            if del_url and i == source_col_idx:
+            ws.cell(row=header_row_excel, column=out_col, value=col_name)
+            out_col += 1
+            if i == source_col_idx:
                 ws.cell(row=header_row_excel, column=out_col, value="图片")
                 img_header_col = out_col
                 out_col += 1
-            else:
-                ws.cell(row=header_row_excel, column=out_col, value=col_name)
-                out_col += 1
-                if not del_url and i == source_col_idx:
-                    ws.cell(row=header_row_excel, column=out_col, value="图片")
-                    img_header_col = out_col
+                for field_name in extra_field_names:
+                    ws.cell(row=header_row_excel, column=out_col, value=field_name)
                     out_col += 1
 
         return out_file, ws, wb_out, img_header_col, header_row_excel
 
-    def _embed_setup_original(self, fname, source_col_idx, del_url=False):
+    def _embed_setup_original(self, fname, source_col_idx, extra_field_names=None):
         """Load original workbook, insert image column. Returns (out_file, ws, wb, img_header_col, header_row_excel)."""
+        extra_field_names = extra_field_names or []
         dest = self.entry_dest.get()
         out_file = os.path.join(dest, f"{fname}_WithImages.xlsx")
         header_row_excel = self.header_row + 1
@@ -1909,7 +2330,7 @@ class SheetPicApp:
         if self.file_path == "Clipboard" or not os.path.exists(self.file_path):
             # Clipboard mode: fallback to new workbook
             self._embed_setup_used_original = False
-            return self._embed_setup_new(fname, source_col_idx, del_url, header_row_excel)
+            return self._embed_setup_new(fname, source_col_idx, header_row_excel, extra_field_names)
 
         ext = os.path.splitext(self.file_path)[1].lower()
         if ext != '.xlsx':
@@ -1917,7 +2338,7 @@ class SheetPicApp:
             self.root.after(0, lambda e=display_ext: self.log(
                 self.T['log_embed_format_fallback'].format(e)))
             self._embed_setup_used_original = False
-            return self._embed_setup_new(fname, source_col_idx, del_url, header_row_excel)
+            return self._embed_setup_new(fname, source_col_idx, header_row_excel, extra_field_names)
 
         wb_out = openpyxl.load_workbook(self.file_path)
         ws = wb_out.active
@@ -1948,15 +2369,11 @@ class SheetPicApp:
             # Last resort: use column index directly
             source_excel_col = source_col_idx + 1
 
-        if del_url:
-            # Replace URL column with image column
-            img_header_col = source_excel_col
-            ws.cell(row=header_row_excel, column=img_header_col, value="图片")
-        else:
-            # Insert a new column after the selected source column for images.
-            img_header_col = source_excel_col + 1
-            ws.insert_cols(img_header_col)
-            ws.cell(row=header_row_excel, column=img_header_col, value="图片")
+        img_header_col = source_excel_col + 1
+        ws.insert_cols(img_header_col, amount=1 + len(extra_field_names))
+        ws.cell(row=header_row_excel, column=img_header_col, value="图片")
+        for offset, field_name in enumerate(extra_field_names, start=1):
+            ws.cell(row=header_row_excel, column=img_header_col + offset, value=field_name)
 
         return out_file, ws, wb_out, img_header_col, header_row_excel
 
