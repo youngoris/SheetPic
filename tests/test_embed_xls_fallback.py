@@ -498,6 +498,49 @@ def test_extract_download_retries_two_timeouts_then_succeeds(tmp_path, monkeypat
     assert (tmp_path / 'slow.jpg').read_bytes() == b'abc'
 
 
+def test_extract_download_stream_timeout_does_not_leave_zero_byte_file(tmp_path, monkeypatch):
+    import sheetpic
+    from sheetpic import LANG_MAP, SheetPicApp
+
+    app = SheetPicApp.__new__(SheetPicApp)
+    app.T = LANG_MAP['zh']
+    app.is_running = True
+    calls = []
+
+    class _Response:
+        status_code = 200
+        headers = {'Content-Type': 'image/jpeg', 'Content-Length': '3'}
+
+        def iter_content(self, _chunk_size):
+            raise sheetpic.requests.exceptions.Timeout()
+            yield b''
+
+    def _get(*_args, **_kwargs):
+        calls.append(1)
+        return _Response()
+
+    monkeypatch.setattr(sheetpic.requests, 'get', _get)
+
+    ok, msg = app.download_url('http://x/slow.jpg', 'slow', str(tmp_path))
+
+    assert ok is False
+    assert '超时' in msg
+    assert len(calls) == 3
+    assert not (tmp_path / 'slow.jpg').exists()
+    assert not (tmp_path / 'slow.jpg.part').exists()
+
+
+def test_extract_output_exists_removes_zero_byte_file(tmp_path):
+    from sheetpic import SheetPicApp
+
+    app = SheetPicApp.__new__(SheetPicApp)
+    damaged = tmp_path / 'ok.jpg'
+    damaged.write_bytes(b'')
+
+    assert app._extract_output_exists(str(tmp_path), 'ok') is False
+    assert not damaged.exists()
+
+
 def test_extract_retry_process_only_retries_failed_tasks(tmp_path, monkeypatch):
     import sheetpic
     from sheetpic import LANG_MAP, SheetPicApp

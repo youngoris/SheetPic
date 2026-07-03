@@ -2140,6 +2140,27 @@ class SheetPicApp:
 
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
+    def _remove_file_quietly(self, path):
+        if not path:
+            return
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+        except OSError:
+            pass
+
+    def _write_extract_file_atomic(self, path, data):
+        temp_path = path + ".part"
+        self._remove_file_quietly(temp_path)
+        try:
+            with open(temp_path, 'wb') as f:
+                f.write(data)
+            os.replace(temp_path, path)
+            return True
+        except OSError:
+            self._remove_file_quietly(temp_path)
+            return False
+
     def _save_processed_extract_image(self, image_data, filename_base, out_dir, options):
         try:
             pil_img = PILImage.open(BytesIO(image_data))
@@ -2154,8 +2175,8 @@ class SheetPicApp:
             return False, self.T['msg_bad_image'].format(filename_base, str(e)[:60])
 
         path = os.path.join(out_dir, filename_base + ext)
-        with open(path, 'wb') as f:
-            f.write(buf.getvalue())
+        if not self._write_extract_file_atomic(path, buf.getvalue()):
+            return False, self.T['msg_err'].format(filename_base, "Could not write file")
         return True, "OK"
 
     def _extract_output_exists(self, out_dir, filename_base):
@@ -2163,6 +2184,13 @@ class SheetPicApp:
             for name in os.listdir(out_dir):
                 stem, ext = os.path.splitext(name)
                 if stem == filename_base and ext:
+                    path = os.path.join(out_dir, name)
+                    try:
+                        if os.path.isfile(path) and os.path.getsize(path) == 0:
+                            self._remove_file_quietly(path)
+                            continue
+                    except OSError:
+                        pass
                     return True
         except OSError:
             return False
@@ -2174,6 +2202,7 @@ class SheetPicApp:
         process_image = _extract_options_require_processing(extract_options)
         for attempt in range(EXTRACT_TIMEOUT_RETRIES + 1):
             path = None
+            temp_path = None
             try:
                 headers = {'User-Agent': 'Mozilla/5.0'}
                 r = requests.get(url, headers=headers, timeout=10, stream=True)
@@ -2198,6 +2227,10 @@ class SheetPicApp:
                             if written > self.MAX_FILE_SIZE:
                                 return False, self.T['msg_too_large'].format(filename_base, written // 1024 // 1024)
                             chunks.append(chunk)
+                        if written == 0:
+                            if attempt < EXTRACT_TIMEOUT_RETRIES:
+                                continue
+                            return False, self.T['msg_err'].format(filename_base, "Empty download")
                         return self._save_processed_extract_image(
                             b''.join(chunks),
                             filename_base,
@@ -2205,35 +2238,43 @@ class SheetPicApp:
                             extract_options
                         )
                     else:
-                        with open(path, 'wb') as f:
+                        temp_path = path + ".part"
+                        self._remove_file_quietly(temp_path)
+                        with open(temp_path, 'wb') as f:
                             for chunk in r.iter_content(8192):
                                 if not self.is_running:
+                                    self._remove_file_quietly(temp_path)
                                     return False, "Stopped"
                                 written += len(chunk)
                                 if written > self.MAX_FILE_SIZE:
                                     f.close()
-                                    os.remove(path)
+                                    self._remove_file_quietly(temp_path)
                                     return False, self.T['msg_too_large'].format(filename_base, written // 1024 // 1024)
                                 f.write(chunk)
+                        if written == 0:
+                            self._remove_file_quietly(temp_path)
+                            if attempt < EXTRACT_TIMEOUT_RETRIES:
+                                continue
+                            return False, self.T['msg_err'].format(filename_base, "Empty download")
+                        os.replace(temp_path, path)
                         return True, "OK"
                 elif r.status_code == 404:
                     return False, self.T['msg_404'].format(filename_base)
                 else:
                     return False, self.T['msg_err'].format(filename_base, f"HTTP {r.status_code} ({url[:60]})")
             except requests.exceptions.Timeout:
-                if path and os.path.exists(path):
-                    try:
-                        os.remove(path)
-                    except OSError:
-                        pass
+                self._remove_file_quietly(temp_path)
                 if attempt < EXTRACT_TIMEOUT_RETRIES:
                     continue
                 return False, self.T['msg_timeout'].format(filename_base)
             except requests.exceptions.SSLError as e:
+                self._remove_file_quietly(temp_path)
                 return False, self.T['msg_ssl_err'].format(filename_base, str(e)[:80])
             except requests.exceptions.ConnectionError as e:
+                self._remove_file_quietly(temp_path)
                 return False, self.T['msg_conn_err'].format(filename_base, str(e)[:80])
             except Exception as e:
+                self._remove_file_quietly(temp_path)
                 if attempt == 0:
                     continue
                 return False, self.T['msg_err'].format(filename_base, f"{type(e).__name__}: {str(e)[:60]}")
